@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 
 import { aiDecision, type HandState, type Player } from "@/lib/game";
 
-const QWEN_API_KEY =
-  process.env.QWEN_API_KEY ||
-  "UPM4KSSD4PGCRXTP4UCR2LM3IPVLUG24LUQBSJUW6QGVLABN6EIQ466PG2V73XCL3X4VA4OGEG2C5UU6EYX3R7OVJCSVY2JX62GIDZZYWNJOR43HGF2KAWMS2ZFG7XWF7CKN7PKXMQV75EVDU4PMEZB27Y======";
-const QWEN_BASE_URL = process.env.QWEN_BASE_URL || "https://tokenservice-gateway-ys.intra.xiaojukeji.com/v1";
-const QWEN_MODEL = process.env.QWEN_MODEL || "aliyun/Qwen3-Coder-Plus";
-const QWEN_MODEL_2 = process.env.QWEN_MODEL_2 || "aliyun/Qwen3-Coder-32B-Instruct";
+const QWEN_API_KEY = process.env.QWEN_API_KEY;
+const QWEN_BASE_URL = process.env.QWEN_BASE_URL;
+const QWEN_MODEL = process.env.QWEN_MODEL;
+const QWEN_MODEL_2 = process.env.QWEN_MODEL_2;
 const MODEL_TIMEOUT_MS = Number(process.env.QWEN_TIMEOUT_MS || 9000);
 
 type RequestBody = {

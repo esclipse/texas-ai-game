@@ -18,8 +18,8 @@ const QWEN_API_KEY = (() => {
   if (env.ok) return env.value;
   return FALLBACK_QWEN_API_KEY;
 })();
-const QWEN_BASE_URL = process.env.QWEN_BASE_URL || "https://tokenservice-gateway-ys.intra.xiaojukeji.com/v1";
-const QWEN_MODEL = process.env.QWEN_MODEL || "aliyun/Qwen3-Coder-Plus";
+const QWEN_BASE_URL = process.env.QWEN_BASE_URL;
+const QWEN_MODEL = process.env.QWEN_MODEL;
 
 export const maxDuration = 30;
 
