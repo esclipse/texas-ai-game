@@ -2,11 +2,11 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Coins, Loader2, MessageCircleHeart, RefreshCcw, Send, Settings } from "lucide-react";
+import { Coins, Loader2, RefreshCcw, Send } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   applyActionToState,
   aiDecision,
@@ -60,9 +60,6 @@ export default function Home() {
   const [isResolving, setIsResolving] = useState(false);
   const [raiseMode, setRaiseMode] = useState<"min" | "2x" | "3x" | "allin">("min");
   const [showRaiseOptions, setShowRaiseOptions] = useState(false);
-  const [pcTableTheme, setPcTableTheme] = useState<"classic" | "neon" | "forest" | "amethyst" | "midnight">(
-    "classic",
-  );
   const [winFx, setWinFx] = useState<{ text: string; winners: string[] } | null>(null);
   const [thinkingActorId, setThinkingActorId] = useState<string | null>(null);
   const [autoChatFeed, setAutoChatFeed] = useState<Array<{ id: string; speaker: string; content: string }>>([]);
@@ -439,48 +436,6 @@ ${aiBrief || "（无）"}
     { key: "allin", label: "All-in", value: raiseDeltaByMode("allin"), variant: "destructive" as const },
   ] as const;
 
-  const pcTableThemeStyles = {
-    classic: {
-      // 经典桌布：默认不带“绿感”的底色
-      tableOverlayClass: "lg:border-zinc-500/15 lg:bg-zinc-900/15",
-      tableBaseClass: "bg-linear-to-b from-zinc-900/70 via-zinc-900/35 to-zinc-950/20",
-      potBorderClass: "border-cyan-300/15",
-      potCoinsClass: "text-cyan-200",
-      potTextClass: "text-cyan-200",
-    },
-    neon: {
-      // 霓虹蓝：偏科技感（少量紫粉点缀）
-      tableOverlayClass: "lg:border-cyan-300/15 lg:bg-cyan-900/10",
-      tableBaseClass: "bg-linear-to-b from-cyan-900/55 via-slate-900/25 to-zinc-950/20",
-      potBorderClass: "border-cyan-300/20",
-      potCoinsClass: "text-cyan-200",
-      potTextClass: "text-cyan-200",
-    },
-    forest: {
-      // 森林绿：给喜欢绿色桌布的人选项
-      tableOverlayClass: "lg:border-emerald-300/15 lg:bg-emerald-900/10",
-      tableBaseClass: "bg-linear-to-b from-emerald-900/45 via-teal-900/25 to-zinc-950/20",
-      potBorderClass: "border-emerald-300/20",
-      potCoinsClass: "text-emerald-200",
-      potTextClass: "text-emerald-200",
-    },
-    amethyst: {
-      // 紫晶：偏紫色桌布
-      tableOverlayClass: "lg:border-fuchsia-300/20 lg:bg-fuchsia-900/15",
-      tableBaseClass: "bg-linear-to-b from-fuchsia-900/45 via-violet-900/25 to-zinc-950/20",
-      potBorderClass: "border-fuchsia-300/20",
-      potCoinsClass: "text-fuchsia-200",
-      potTextClass: "text-fuchsia-200",
-    },
-    midnight: {
-      // 午夜：偏深蓝/黑
-      tableOverlayClass: "lg:border-indigo-300/15 lg:bg-indigo-950/10",
-      tableBaseClass: "bg-linear-to-b from-indigo-950/55 via-slate-950/25 to-zinc-950/20",
-      potBorderClass: "border-indigo-300/20",
-      potCoinsClass: "text-indigo-200",
-      potTextClass: "text-indigo-200",
-    },
-  } as const;
 
   const syncState = (next: typeof state) => {
     stateRef.current = next;
@@ -553,6 +508,13 @@ ${aiBrief || "（无）"}
     return next;
   };
 
+  const getAvatarColor = (name: string) => {
+    const palette = ["#c46687", "#788d5d", "#6a9bcc", "#d97757", "#bcd2ca"];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return palette[hash % palette.length];
+  };
+
   const parseCard = (value: string) => {
     const rawRank = value.slice(0, -1).toUpperCase();
     const suit = value.slice(-1).toLowerCase();
@@ -566,8 +528,8 @@ ${aiBrief || "（无）"}
     const rank = rankMap[rawRank] ?? rawRank;
     const suitMap: Record<string, { symbol: string; color: string; label: string }> = {
       s: { symbol: "♠", color: "text-zinc-900", label: "黑桃" },
-      h: { symbol: "♥", color: "text-red-600", label: "红桃" },
-      d: { symbol: "♦", color: "text-red-600", label: "方块" },
+      h: { symbol: "♥", color: "text-[#c46687]", label: "红桃" },
+      d: { symbol: "♦", color: "text-[#c46687]", label: "方块" },
       c: { symbol: "♣", color: "text-zinc-900", label: "梅花" },
     };
     return {
@@ -610,49 +572,46 @@ ${aiBrief || "（无）"}
   };
 
   const cardView = (value: string, hidden = false, compact = false) => {
-    const dim = compact ? "h-11 w-8" : "h-14 w-10";
-    const imgSizes = compact ? "32px" : "40px";
+    const dim = compact ? "h-11 w-8" : "h-[3.6rem] w-[2.6rem]";
+    const imgSizes = compact ? "32px" : "42px";
+    const radius = compact ? "rounded" : "rounded-md";
+
     if (hidden) {
       return (
-        <div
-          className={cn(
-            `flex ${dim} items-center justify-center rounded text-zinc-300`,
-            compact ? "border border-zinc-600/70 bg-zinc-800/90 text-[10px]" : "bg-zinc-900 text-sm"
-          )}
-        >
-          <span>{compact ? "—" : "🂠"}</span>
+        <div className={cn(
+          `flex ${dim} items-center justify-center ${radius} card-back border`,
+          compact ? "border-[#6a9bcc]/20 shadow-sm" : "border-[#6a9bcc]/25 shadow-md"
+        )}>
+          <div className={cn(
+            "rounded-sm border border-[#6a9bcc]/15",
+            compact ? "h-5 w-3.5" : "h-7 w-4.5"
+          )} />
         </div>
       );
     }
+
     if (value === "--") {
       return (
-        <div
-          className={cn(
-            `flex ${dim} items-center justify-center rounded ${compact ? "text-[10px]" : "text-xs"}`,
-            compact
-              ? "border border-zinc-600/60 bg-zinc-800/90 text-zinc-600"
-              : "bg-white/90 text-zinc-400"
-          )}
-        >
-          {compact ? "—" : "--"}
-        </div>
+        <div className={cn(
+          `flex ${dim} items-center justify-center ${radius} border border-dashed`,
+          compact ? "border-white/8 bg-white/3" : "border-white/10 bg-white/4"
+        )} />
       );
     }
 
     const card = parseCard(value);
     const cardImageSrc = getCardImageSrc(value);
     return (
-      <div
-        className={`relative ${dim}`}
-        aria-label={`${card.label}${card.rank}`}
-      >
+      <div className={cn(`relative ${dim} ${radius} overflow-hidden`, compact ? "shadow-sm ring-1 ring-black/5" : "shadow-md ring-1 ring-black/10")} aria-label={`${card.label}${card.rank}`}>
         {cardImageSrc ? (
-          <>
-            <Image src={cardImageSrc} alt={`${card.label}${card.rank}`} fill sizes={imgSizes} className="object-cover" />
-          </>
+          <Image src={cardImageSrc} alt={`${card.label}${card.rank}`} fill sizes={imgSizes} className="object-cover" />
         ) : (
-          <div className={`flex h-full flex-col items-center justify-center text-[10px] font-semibold leading-tight ${card.color}`}>
-            <div>{card.label}</div>
+          <div className={cn(
+            "flex h-full w-full flex-col items-center justify-center bg-white font-bold leading-tight",
+            compact ? "text-[10px]" : "text-xs",
+            card.color
+          )}>
+            <div>{card.symbol}</div>
             <div>{card.rank}</div>
           </div>
         )}
@@ -766,90 +725,65 @@ ${aiBrief || "（无）"}
   const actionDisabled = isBusted || state.isHandOver || !isHumanTurn || isResolving;
 
   return (
-    <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden bg-[#04070b] p-2 pb-0 text-zinc-100 sm:min-h-screen sm:h-auto sm:overflow-auto sm:bg-zinc-50 sm:p-5 sm:pb-5 sm:text-zinc-900 lg:pb-5 lg:p-5">
-      <div className="mb-2 shrink-0 space-y-1.5 rounded-xl bg-zinc-950/65 p-2 shadow-[0_8px_24px_rgba(0,0,0,0.32)] backdrop-blur sm:mb-3 sm:rounded-none sm:bg-transparent sm:p-0 sm:shadow-none">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-[11px] text-zinc-400 sm:text-zinc-500 lg:hidden">娱乐桌 · 1/2bb · 6人</p>
-            <h1 className="text-base font-bold tracking-tight text-zinc-100 sm:text-lg sm:text-zinc-900 lg:text-xl">鱼桌</h1>
-            <p className="hidden text-xs text-zinc-500 lg:block">六人桌</p>
+    <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-y-auto bg-[#faf9f6] p-2 pb-36 text-[#1A1A1A] sm:min-h-screen sm:h-auto sm:p-4 sm:pb-4 lg:pb-4 lg:p-5">
+      <div className="mb-2 shrink-0 space-y-1.5 rounded-xl bg-white/70 p-2.5 shadow-sm backdrop-blur-sm sm:mb-3 sm:rounded-xl sm:p-3 lg:p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="text-lg font-bold tracking-tight text-[#1A1A1A] lg:text-xl">鱼桌</h1>
+            <Badge variant="secondary" className="hidden border-0 bg-[#f1ede6] text-[10px] text-[#d97757] lg:inline-flex">
+              六人桌 · 1/2bb
+            </Badge>
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 w-8 p-0 text-zinc-400 lg:hidden"
-              aria-label="设置（占位）"
-              disabled
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-            <div className="hidden items-center gap-2 lg:flex">
-              <select
-                className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
-                value={pcTableTheme}
-                onChange={(e) => setPcTableTheme(e.target.value as "classic" | "neon" | "forest" | "amethyst" | "midnight")}
-                aria-label="主题桌布"
-              >
-                <option value="classic">经典</option>
-                <option value="neon">霓虹蓝</option>
-                <option value="forest">森林绿</option>
-                <option value="amethyst">紫晶</option>
-                <option value="midnight">午夜</option>
-              </select>
-            </div>
+          <div className="flex shrink-0 items-center gap-1.5">
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="gap-1 border-zinc-700 bg-zinc-900 px-2.5 text-xs text-zinc-100 hover:bg-zinc-800 sm:border-zinc-300 sm:bg-white sm:text-zinc-900 sm:hover:bg-zinc-100 sm:px-3 sm:text-sm"
+              className="gap-1.5 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
               onClick={() => {
                 const subject = encodeURIComponent("鱼桌 - 用户反馈");
                 window.location.href = `mailto:regretn@163.com?subject=${subject}`;
               }}
             >
-              <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <Send className="h-3.5 w-3.5" />
               联系
             </Button>
           </div>
         </div>
-        <Badge
-          variant={isBusted ? "outline" : "secondary"}
-          className="w-fit max-w-full whitespace-normal border-cyan-400/35 bg-cyan-950/55 text-left text-[10px] leading-snug text-cyan-100 sm:border-zinc-200 sm:bg-zinc-100 sm:text-zinc-800 sm:text-xs"
-        >
-          {statusText}
-        </Badge>
-        <div className="flex gap-1 overflow-x-auto pb-0.5 pl-0.5 [-ms-overflow-style:none] [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="secondary"
+            className={cn(
+              "w-fit whitespace-normal border-0 text-left text-[10px] leading-snug sm:text-xs",
+              isBusted ? "bg-[#ebcecf] text-[#c46687]" : "bg-[#f1ede6] text-[#788d5d]"
+            )}
+          >
+            {statusText}
+          </Badge>
+        </div>
+        <div className="flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden">
           {state.players.map((p, seatIndex) => {
             const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
-            const dotClass = isToAct
-              ? "bg-cyan-300"
-              : !p.inHand
-                ? "bg-zinc-600"
-                : p.id === "human"
-                  ? "bg-sky-300"
-                  : "bg-emerald-300/80";
             return (
               <div
                 key={p.id}
                 className={cn(
-                  "flex min-w-17 shrink-0 flex-col rounded-md px-1 py-1",
-                  isToAct
-                    ? "border-cyan-300/45 bg-cyan-950/65"
-                    : "bg-zinc-900/70"
+                  "flex min-w-18 shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1",
+                  isToAct ? "bg-[#f1ede6] ring-1 ring-[#d97757]/40" : "bg-white/60"
                 )}
               >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="truncate text-[8px] font-medium leading-tight text-zinc-300">
-                    {mobileAliasSeatTitle(seatIndex, p)}
-                  </span>
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />
+                <div
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                  style={{ background: getAvatarColor(p.name) }}
+                >{p.name[0]}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[8px] font-medium text-[#788d5d]">{mobileAliasSeatTitle(seatIndex, p)}</div>
+                  <div className="flex items-center gap-1">
+                    <span className="tabular-nums text-[9px] font-semibold text-[#1A1A1A]">{p.stack}</span>
+                    {!p.inHand && <span className="text-[7px] text-[#e4dbcd]">FOLD</span>}
+                  </div>
                 </div>
-                <div className="mt-0.5 flex items-baseline justify-between gap-1">
-                  <span className="truncate text-[8px] leading-none text-zinc-400">{getMobilePlayerSubtext(p)}</span>
-                  <span className="shrink-0 tabular-nums text-[10px] font-semibold text-cyan-200">{p.stack}</span>
-                </div>
+                {isToAct && <span className="h-1.5 w-1.5 rounded-full bg-[#d97757] animate-pulse" />}
               </div>
             );
           })}
@@ -857,152 +791,115 @@ ${aiBrief || "（无）"}
       </div>
 
       <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[1fr_320px] lg:gap-3">
-        <div className="min-h-0 space-y-2 lg:space-y-3">
-          <Card className="border-0 bg-zinc-950/65 text-white shadow-none sm:border sm:border-zinc-800/60 sm:shadow-sm lg:bg-zinc-950/55">
-            <CardHeader className="hidden p-4 lg:block">
-              <CardTitle className="text-base text-zinc-100">牌桌</CardTitle>
-              <CardDescription className="text-zinc-500">德州牌局</CardDescription>
-            </CardHeader>
-            <CardContent className="relative flex min-h-0 flex-col p-2 pt-0 sm:p-4 sm:pt-0 lg:p-6 lg:pt-0">
-              <div
-                className={cn(
-                  "flex min-h-0 flex-1 flex-col rounded-xl bg-zinc-900/35 p-1.5 sm:rounded-2xl sm:p-3",
-                  pcTableThemeStyles[pcTableTheme].tableOverlayClass
-                )}
-              >
+        <div className="flex min-h-0 flex-col gap-2 lg:block lg:space-y-3">
+          <Card className="shrink-0 border-0 bg-[#623e25] shadow-none lg:bg-transparent rounded-xl lg:rounded-none">
+            <CardContent className="relative flex min-h-0 flex-col p-0 sm:p-2 lg:p-3">
+              <div className="flex min-h-0 flex-1 flex-col">
                 <div className="hidden lg:block">
-                  <div
-                    className={cn(
-                      "relative mx-auto h-[470px] w-full max-w-[900px] rounded-[220px]",
-                      pcTableThemeStyles[pcTableTheme].tableBaseClass,
-                    )}
-                  >
-                    {seats.map((p, idx) => (
-                      <div key={p.id} className={`absolute w-52 ${seatRingClasses[idx % seatRingClasses.length]}`}>
-                        {(() => {
-                          const seatIndex = seatIndexById.get(p.id) ?? -1;
-                          const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
-                          const isFolded = !p.inHand;
-                          return (
-                        <div
-                          className={`relative box-border rounded-md border p-2 text-xs ${
-                            isToAct
-                              ? "border-cyan-300/45 bg-cyan-950/80"
-                              : isFolded
-                                ? "border-transparent bg-cyan-950/35 opacity-70"
-                                : "border-transparent bg-cyan-950/50"
-                          }`}
-                          style={
-                            winFx?.winners.includes(p.name)
-                              ? {
-                                  boxShadow:
-                                    "0 0 0 2px rgba(250,204,21,0.65), 0 0 18px rgba(250,204,21,0.45)",
-                                }
-                              : undefined
-                          }
-                        >
-                          <div className="mb-1 flex items-center justify-between">
-                            <span className="flex items-center gap-1 font-medium">
-                              {p.name}
-                              {seatIndex === state.dealerIndex ? <Badge className="bg-amber-500 text-[10px] text-black">庄</Badge> : null}
-                              {seatIndex === state.sbIndex ? <Badge className="bg-sky-200 text-[10px] text-sky-900">小盲</Badge> : null}
-                              {seatIndex === state.bbIndex ? <Badge className="bg-violet-200 text-[10px] text-violet-900">大盲</Badge> : null}
-                              {getPositionLabel(seatIndex) ? (
-                                <Badge className="bg-cyan-200 text-[10px] text-cyan-900">{getPositionLabel(seatIndex)}</Badge>
-                              ) : null}
-                              {isToAct ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <span
-                                    className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.9)]"
-                                    aria-label="active-turn"
-                                  />
-                                </span>
-                              ) : null}
-                              {isFolded ? <Badge className="bg-zinc-200 text-[10px] text-zinc-800">弃牌</Badge> : null}
-                            </span>
-                            <span
-                              className={`font-semibold tabular-nums ${
-                                winFx?.winners.includes(p.name) ? "text-red-300" : ""
-                              }`}
-                            >
-                              {p.stack}bb
-                            </span>
-                          </div>
-                          <div className="mb-1 flex items-center justify-between text-[11px] text-cyan-100/90">
-                            <span
-                              className={`font-medium ${
-                                p.currentBet > 0
-                                  ? p.currentBet === state.currentBet
-                                    ? "text-amber-200"
-                                    : "text-sky-300/80"
-                                  : ""
-                              }`}
-                            >
-                              本轮下注 {p.currentBet}bb
-                            </span>
-                            <span className="rounded bg-black/25 px-1 py-0.5 text-[10px] text-cyan-50">
-                              {lastActionByActor.get(p.name) ?? "-"}
-                            </span>
-                          </div>
-                          {p.id === "human" ? (
-                            <div className="flex gap-1.5">
-                              {cardView(humanCards[0])}
-                              {cardView(humanCards[1])}
-                            </div>
-                          ) : revealAllHoleCards ? (
-                            <div className="flex gap-1.5">
-                              {cardView(state.holeCards[p.id]?.[0] ?? "--")}
-                              {cardView(state.holeCards[p.id]?.[1] ?? "--")}
-                            </div>
-                          ) : null}
-                          {thinkingActorId === p.id && !state.isHandOver ? (
-                            <div className="pointer-events-none absolute -bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] text-white shadow-md">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              思考中
-                            </div>
-                          ) : null}
-                        </div>
-                          );
-                        })()}
+                  <div className="poker-rail relative mx-auto w-full max-w-[940px] rounded-[24px] p-[7px]">
+                    <div className="relative h-[490px] w-full">
+                      <div className="absolute inset-0 rounded-[200px] overflow-hidden poker-felt">
+                        <div className="poker-felt-inner pointer-events-none absolute inset-0" />
                       </div>
-                    ))}
+                      {seats.map((p, idx) => {
+                        const seatIndex = seatIndexById.get(p.id) ?? -1;
+                        const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
+                        const isFolded = !p.inHand;
+                        const isWinner = winFx?.winners.includes(p.name) ?? false;
+                        const posLabel = getPositionLabel(seatIndex);
+                        return (
+                          <div key={p.id} className={cn("absolute w-46", seatRingClasses[idx % seatRingClasses.length])}>
+                            <div className={cn(
+                              "relative rounded-xl border p-2 text-xs shadow-lg transition-all duration-300",
+                              isToAct ? "seat-active border-[#d97757]/50 bg-white/95" :
+                              isWinner ? "seat-winner border-[#d97757]/50 bg-white/95" :
+                              isFolded ? "border-[#e4dbcd]/50 bg-white/50 opacity-50" :
+                              p.id === "human" ? "border-[#bcd2ca]/50 bg-white/92" :
+                              "border-[#e4dbcd]/60 bg-white/90"
+                            )}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white shadow-sm"
+                                  style={{ background: getAvatarColor(p.name) }}
+                                >
+                                  {p.name[0]}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="flex items-center gap-1 truncate text-[13px] font-semibold text-[#1A1A1A]">
+                                      {p.name}
+                                      {p.id === "human" && <span className="rounded bg-[#788d5d] px-1 py-px text-[8px] font-bold leading-none text-white">你</span>}
+                                    </span>
+                                    <span className={cn("shrink-0 text-xs font-bold tabular-nums", isWinner ? "text-[#d97757]" : "text-[#1A1A1A]")}>
+                                      {p.stack}bb
+                                    </span>
+                                  </div>
+                                  <div className="mt-0.5 flex items-center gap-1">
+                                    {seatIndex === state.dealerIndex && <span className="rounded bg-[#d97757] px-1 py-px text-[8px] font-bold leading-none text-white">D</span>}
+                                    {seatIndex === state.sbIndex && <span className="rounded bg-[#6a9bcc] px-1 py-px text-[8px] font-bold leading-none text-white">SB</span>}
+                                    {seatIndex === state.bbIndex && <span className="rounded bg-[#c46687] px-1 py-px text-[8px] font-bold leading-none text-white">BB</span>}
+                                    {posLabel && posLabel !== "-" && <span className="text-[9px] text-[#d97757]">{posLabel}</span>}
+                                    {p.currentBet > 0 && <span className="ml-auto text-[10px] font-medium text-[#d97757]">{lastActionByActor.get(p.name) ?? ""} {p.currentBet}bb</span>}
+                                    {isFolded && <span className="text-[9px] text-[#e4dbcd]">FOLD</span>}
+                                    {isToAct && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#d97757] animate-pulse" />}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="mt-1.5 flex gap-1.5">
+                                {p.id === "human" ? (
+                                  <>{cardView(humanCards[0])}{cardView(humanCards[1])}</>
+                                ) : revealAllHoleCards ? (
+                                  <>{cardView(state.holeCards[p.id]?.[0] ?? "--")}{cardView(state.holeCards[p.id]?.[1] ?? "--")}</>
+                                ) : p.inHand ? (
+                                  <>{cardView("As", true)}{cardView("Ks", true)}</>
+                                ) : null}
+                              </div>
+                              {thinkingActorId === p.id && !state.isHandOver && (
+                                <div className="pointer-events-none absolute -bottom-3 right-2 flex items-center gap-1 rounded-full bg-[#1A1A1A] px-2.5 py-1 text-[10px] text-white shadow-lg">
+                                  <Loader2 className="h-3 w-3 animate-spin" />思考中
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
 
-                    <div
-                      className={cn(
-                        "absolute left-1/2 top-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border bg-zinc-950/55 p-4 backdrop-blur",
-                        pcTableThemeStyles[pcTableTheme].potBorderClass
-                      )}
-                    >
-                      <div className="mb-2 flex items-center justify-center gap-1.5 text-center text-sm text-white">
-                        <Coins className={cn("h-4 w-4", pcTableThemeStyles[pcTableTheme].potCoinsClass)} aria-hidden />
-                        <span>
-                          底池{" "}
-                          <span className={cn("tabular-nums", pcTableThemeStyles[pcTableTheme].potTextClass)}>{state.pot}</span>bb
-                        </span>
-                      </div>
-                      <div className="flex justify-center gap-1.5">
-                        {(state.board.length ? state.board : ["--", "--", "--", "--", "--"]).map((c, i) => (
-                          <div key={`${c}-${i}`}>{cardView(c)}</div>
-                        ))}
+                      <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
+                        <div className="flex items-center gap-2 rounded-full bg-white/90 px-5 py-2 shadow-lg">
+                          <Coins className="h-4 w-4 text-[#d97757]" aria-hidden />
+                          <span className="text-sm font-bold tracking-wide text-[#1A1A1A]">
+                            底池 <span className="tabular-nums text-[#d97757]">{state.pot}</span>bb
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          {(state.board.length ? state.board : ["--", "--", "--", "--", "--"]).map((c, i) => (
+                            <div key={`${c}-${i}`}>{cardView(c)}</div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="relative mx-auto flex w-full flex-1 items-center justify-center lg:hidden">
+                <div className="relative mx-auto flex w-full items-center justify-center lg:hidden">
                   <div className="relative h-[min(58dvh,34rem)] w-[min(92vw,26rem)]">
                   <div
-                    className="absolute inset-[2%] rounded-[50%] border border-fuchsia-300/20 bg-linear-to-b from-teal-900/95 via-cyan-900/80 to-zinc-950 shadow-[inset_0_0_50px_rgba(0,0,0,0.34)]"
+                    className="absolute inset-0 rounded-[50%]"
+                    style={{ background: "linear-gradient(160deg, #623e25, #4a2e1a 40%, #3a2016)" }}
+                    aria-hidden
+                  />
+                  <div
+                    className="absolute inset-[2.5%] rounded-[50%] poker-felt poker-felt-inner"
                     aria-hidden
                   />
                   <div className="pointer-events-none absolute left-1/2 top-[45%] z-20 w-[58%] max-w-56 -translate-x-1/2 -translate-y-1/2 px-2 py-1.5 text-center">
-                    <div className="mb-1 flex items-center justify-center gap-1 text-[11px] text-white">
-                      <Coins className="h-3.5 w-3.5 text-fuchsia-300" aria-hidden />
-                      <span>
-                        底池 <span className="tabular-nums font-semibold text-fuchsia-200">{state.pot}</span>
+                    <div className="mb-1.5 flex items-center justify-center gap-1.5 rounded-full bg-white/90 px-3 py-1 shadow-md">
+                      <Coins className="h-3 w-3 text-[#d97757]" aria-hidden />
+                      <span className="text-[11px] font-bold text-[#1A1A1A]">
+                        底池 <span className="tabular-nums text-[#d97757]">{state.pot}</span>bb
                       </span>
                     </div>
-                    <div className="flex justify-center gap-0.5 scale-[0.96] opacity-95">
+                    <div className="flex justify-center gap-0.5">
                       {(state.board.length ? state.board : ["--", "--", "--", "--", "--"]).map((c, i) => (
                         <div key={`${c}-${i}`}>{cardView(c, false, true)}</div>
                       ))}
@@ -1030,64 +927,49 @@ ${aiBrief || "（无）"}
                       const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
                       const isFolded = !p.inHand;
                       const seatTitle = mobileAliasSeatTitle(seatIndex, p);
-                      const isDealer = seatIndex === state.dealerIndex;
+                      const isWinner = winFx?.winners.includes(p.name) ?? false;
                       return (
                         <div
                           key={p.id}
-                          className={cn("absolute z-10 w-[4.6rem]", ovalSlots[idx])}
-                          style={
-                            winFx?.winners.includes(p.name)
-                              ? {
-                                  filter: "drop-shadow(0 0 8px rgba(250,204,21,0.35))",
-                                }
-                              : undefined
-                          }
+                          className={cn("absolute z-10 w-[4.8rem]", ovalSlots[idx])}
                         >
-                          <div
-                            className={cn(
-                              "relative box-border overflow-visible rounded-md border border-transparent text-[9px] leading-tight",
-                              !isToAct && isFolded && "opacity-65",
-                              !isToAct && !isFolded && ""
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "px-0.5 py-0.5",
-                                isFolded ? "bg-zinc-800/45" : "bg-zinc-900/75"
-                              )}
-                            >
+                          <div className={cn(
+                            "relative overflow-visible rounded-lg border text-[9px] leading-tight shadow-md transition-all",
+                            isToAct ? "seat-active border-[#d97757]/50 bg-white/92" :
+                            isWinner ? "seat-winner border-[#d97757]/50 bg-white/92" :
+                            isFolded ? "border-[#e4dbcd]/40 bg-white/40 opacity-55" :
+                            p.id === "human" ? "border-[#bcd2ca]/40 bg-white/88" :
+                            "border-[#e4dbcd]/50 bg-white/85"
+                          )}>
+                            <div className="px-1 pt-1 pb-0.5">
                               {p.id === "human" ? (
-                                <div className="relative z-40 mb-0.5 flex justify-center">
-                                  <div className="relative z-40 -translate-y-1 -rotate-10">{cardView(humanCards[0], false, true)}</div>
-                                  <div className="relative z-40 -ml-2 -translate-y-1 rotate-10">{cardView(humanCards[1], false, true)}</div>
+                                <div className="mb-0.5 flex justify-center gap-0.5">
+                                  {cardView(humanCards[0], false, true)}
+                                  {cardView(humanCards[1], false, true)}
                                 </div>
-                              ) : (
-                                <div className="mb-0.5 flex justify-center gap-px">
+                              ) : p.inHand ? (
+                                <div className="mb-0.5 flex justify-center gap-0.5">
                                   {revealAllHoleCards ? (
-                                    <>
-                                      {cardView(state.holeCards[p.id]?.[0] ?? "--", false, true)}
-                                      {cardView(state.holeCards[p.id]?.[1] ?? "--", false, true)}
-                                    </>
+                                    <>{cardView(state.holeCards[p.id]?.[0] ?? "--", false, true)}{cardView(state.holeCards[p.id]?.[1] ?? "--", false, true)}</>
                                   ) : (
-                                    <>
-                                      {cardView("As", true, true)}
-                                      {cardView("Ks", true, true)}
-                                    </>
+                                    <>{cardView("As", true, true)}{cardView("Ks", true, true)}</>
                                   )}
                                 </div>
-                              )}
-                              <div className="flex items-center justify-center gap-1">
-                                <div className="truncate text-[10px] font-semibold leading-none text-cyan-100">{seatTitle}</div>
-                                {isToAct ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" /> : null}
+                              ) : null}
+                              <div className="flex items-center justify-center gap-0.5">
+                                <div
+                                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-bold text-white"
+                                  style={{ background: getAvatarColor(p.name) }}
+                                >{p.name[0]}</div>
+                                <span className="truncate text-[9px] font-semibold text-[#1A1A1A]">{seatTitle}</span>
+                                {isToAct && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#d97757]" />}
                               </div>
                             </div>
-                            <div
-                              className={cn(
-                                "py-0.5 text-center text-[11px] font-bold leading-none tabular-nums text-cyan-100",
-                                winFx?.winners.includes(p.name) ? "text-red-300" : ""
-                              )}
-                            >
-                              {isFolded ? "—" : `${p.stack}`}
+                            <div className={cn(
+                              "rounded-b-lg py-0.5 text-center text-[10px] font-bold leading-none tabular-nums",
+                              isWinner ? "text-[#d97757]" : "text-[#788d5d]"
+                            )}>
+                              {isFolded ? <span className="text-[#e4dbcd]">FOLD</span> : `${p.stack}bb`}
                             </div>
                           </div>
                         </div>
@@ -1113,9 +995,9 @@ ${aiBrief || "（无）"}
                           key={`chip-${p.id}`}
                           className={cn("pointer-events-none absolute z-20", chipSlots[idx])}
                         >
-                          <div className="flex items-center gap-1 px-0.5 py-0.5 text-[10px] font-semibold tabular-nums text-cyan-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                          <div className="flex items-center gap-1 px-0.5 py-0.5 text-[10px] font-semibold tabular-nums text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                             <span className="relative h-4 w-4">
-                              <span className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-linear-to-b from-amber-200 to-amber-500 shadow-[0_2px_10px_rgba(0,0,0,0.35)] ring-1 ring-black/25" />
+                              <span className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-[#d97757] shadow-[0_2px_10px_rgba(0,0,0,0.35)] ring-1 ring-black/25" />
                               <span className="absolute left-1.5 top-1.5 h-1 w-1 rounded-full bg-white/55" />
                             </span>
                             <span>{bet}</span>
@@ -1127,10 +1009,10 @@ ${aiBrief || "（无）"}
                   </div>
                 </div>
 
-                <div className="relative hidden grid-cols-3 gap-2 md:grid">
+                <div className="relative mt-3 hidden grid-cols-3 gap-2 md:grid">
                   <Button
                     size="sm"
-                    className="bg-sky-600 text-white hover:bg-sky-500"
+                    className="rounded-lg border-0 bg-[#c46687] text-sm font-bold text-white shadow-md hover:opacity-90 disabled:opacity-40"
                     onClick={() => handleHumanAction("fold", 0, "弃牌")}
                     disabled={actionDisabled}
                   >
@@ -1138,7 +1020,7 @@ ${aiBrief || "（无）"}
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-cyan-600 text-white hover:bg-cyan-500"
+                    className="rounded-lg border-0 bg-[#788d5d] text-sm font-bold text-white shadow-md hover:opacity-90 disabled:opacity-40"
                     onClick={() => handleHumanAction(humanToCall > 0 ? "call" : "check", 0, humanToCall > 0 ? "跟注" : "过牌")}
                     disabled={actionDisabled}
                   >
@@ -1146,14 +1028,14 @@ ${aiBrief || "（无）"}
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-rose-500 text-white hover:bg-rose-400"
+                    className="rounded-lg border-0 bg-[#d97757] text-sm font-bold text-white shadow-md hover:opacity-90 disabled:opacity-40"
                     onClick={() => setShowRaiseOptions((s) => !s)}
                     disabled={actionDisabled || !canHumanRaise}
                   >
-                    {state.raiseCountThisRound >= 3 ? "加注 封顶" : canHumanRaise ? `加注 ${selectedRaiseDelta}bb` : "加注 -"}
+                    {state.raiseCountThisRound >= 3 ? "加注封顶" : canHumanRaise ? `加注 ${selectedRaiseDelta}bb` : "加注"}
                   </Button>
-                  {showRaiseOptions && isHumanTurn && !isResolving && canHumanRaise ? (
-                    <div className="absolute bottom-full right-0 z-30 mb-2 w-44 rounded-lg border border-zinc-700 bg-zinc-900/95 p-1 shadow-2xl backdrop-blur">
+                  {showRaiseOptions && isHumanTurn && !isResolving && canHumanRaise && (
+                    <div className="absolute bottom-full right-0 z-30 mb-2 w-48 rounded-xl border border-[#e9e5dc] bg-white p-1.5 shadow-xl">
                       {raiseChoices.map((opt) => (
                         <button
                           key={opt.key}
@@ -1162,42 +1044,69 @@ ${aiBrief || "（无）"}
                             setShowRaiseOptions(false);
                             void handleHumanAction("raise", opt.value, opt.key === "allin" ? "全下" : `加注 ${opt.key}`);
                           }}
-                          className={`mb-1 w-full rounded px-2 py-1.5 text-left text-xs font-semibold last:mb-0 ${
-                            raiseMode === opt.key
-                              ? "bg-sky-500 text-white"
-                              : opt.variant === "destructive"
-                                ? "bg-red-600/90 text-white hover:bg-red-500"
-                                : "bg-zinc-700 text-zinc-100 hover:bg-zinc-600"
-                          }`}
+                          className={cn(
+                            "mb-1 w-full rounded-lg px-3 py-2 text-left text-xs font-bold last:mb-0 transition-colors",
+                            raiseMode === opt.key ? "bg-[#d97757] text-white" :
+                            opt.variant === "destructive" ? "bg-[#c46687] text-white hover:opacity-90" :
+                            "bg-[#faf9f6] text-[#1A1A1A] hover:bg-[#f1ede6]"
+                          )}
                         >
                           {opt.label}
                         </button>
                       ))}
                     </div>
-                  ) : null}
+                  )}
                 </div>
-                {heroHint ? <div className="mt-1 text-center text-[11px] text-zinc-500">{heroHint}</div> : null}
+                {heroHint && <div className="mt-1.5 text-center text-[11px] text-[#d97757]">{heroHint}</div>}
                 <div className="mt-2 hidden md:flex">
                   <Button
-                    className="w-full border-zinc-600 bg-zinc-900 text-zinc-100 hover:bg-zinc-800"
+                    className="w-full rounded-lg border-[#e9e5dc] bg-white text-sm text-[#788d5d] shadow-sm hover:bg-[#faf9f6] disabled:opacity-40"
                     variant="outline"
                     onClick={() => void newHand()}
                     disabled={isResolving}
                   >
-                    <RefreshCcw className="mr-1 h-4 w-4" />
-                    {state.isHandOver ? "开始新一局" : "新一局"}
+                    <RefreshCcw className="mr-1.5 h-4 w-4" />
+                    新一局
                   </Button>
                 </div>
               </div>
             </CardContent>
           </Card>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-[#e9e5dc] bg-white md:hidden">
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex items-center justify-between border-b border-[#e9e5dc] px-3 py-1.5">
+                <span className="text-[11px] font-semibold text-[#1A1A1A]">群聊</span>
+                <span className="text-[10px] text-[#e4dbcd]">{[...groupChatFeed, ...autoChatFeed].length}条</span>
+              </div>
+              <div className="flex-1 overflow-y-auto px-2 py-1.5" ref={recordListRef}>
+                {[...groupChatFeed, ...autoChatFeed].length === 0 ? (
+                  <div className="py-4 text-center text-[10px] text-[#e4dbcd]">暂无消息</div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {[...groupChatFeed, ...autoChatFeed].slice(-30).map((msg) => (
+                      <div key={msg.id} className="flex items-start gap-1.5">
+                        <div
+                          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                          style={{ background: getAvatarColor(msg.speaker) }}
+                        >{msg.speaker[0]}</div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-semibold text-[#d97757]">{msg.speaker}</span>
+                          <p className="text-[11px] leading-snug text-[#1A1A1A]">{msg.content}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-2 lg:sticky lg:top-3 lg:self-start lg:space-y-3">
-          <Card id="game-log" className="hidden md:block border border-zinc-200 bg-white shadow-sm">
-            <CardContent className="px-2 pb-3 pt-0 sm:px-2 sm:py-1">
-              <div className="hidden md:block">
-                <div className="h-[min(66vh,36rem)] min-h-0">
+        <div className="flex flex-col space-y-2 lg:space-y-3">
+          <Card id="game-log" className="hidden md:flex md:flex-1 md:flex-col border border-[#e9e5dc] bg-white shadow-sm">
+            <CardContent className="flex flex-1 flex-col px-2 pb-3 pt-0 sm:px-2 sm:py-1">
+              <div className="hidden md:flex md:flex-1 md:flex-col">
+                <div className="flex-1 min-h-0">
                   <AiRecordChat
                     gameContext={recordChatContext}
                     groupName="鱼桌"
@@ -1210,42 +1119,29 @@ ${aiBrief || "（无）"}
           </Card>
         </div>
       </div>
-      <div className="fixed bottom-0 left-1/2 z-40 w-[96%] max-w-[360px] -translate-x-1/2 pb-[env(safe-area-inset-bottom)] md:hidden">
-        <div className="rounded-2xl bg-zinc-950/92 p-1.5 shadow-2xl backdrop-blur-xl">
-          <div className="grid grid-cols-2 gap-1">
+      <div className="fixed bottom-0 left-1/2 z-40 w-[96%] -translate-x-1/2 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <div className="rounded-2xl border border-[#e9e5dc] bg-white/95 p-2 shadow-[0_-4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl">
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               className={cn(
-                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
-                actionDisabled || human.stack <= 0 || human.stack <= humanToCall
-                  ? "border-zinc-700 bg-zinc-800 text-zinc-500"
-                  : "bg-red-700 hover:bg-red-600"
-              )}
-              disabled={actionDisabled || human.stack <= 0 || human.stack <= humanToCall}
-              onClick={() => void handleHumanAction("raise", raiseDeltaByMode("allin"), "全下")}
-            >
-              全下
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold transition active:scale-[0.98]",
-                actionDisabled || !canHumanRaise
-                  ? "border-zinc-700 bg-zinc-800 text-zinc-500"
-                  : "bg-rose-500 text-white hover:bg-rose-400"
-              )}
-              disabled={actionDisabled || !canHumanRaise}
-              onClick={() => setShowRaiseOptions((s) => !s)}
-            >
-              {state.raiseCountThisRound >= 3 ? "加注 封顶" : `加注 ${selectedRaiseDelta}bb`}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
+                "min-w-0 rounded-xl px-2 py-2.5 text-[12px] font-bold shadow-sm transition active:scale-[0.97]",
                 actionDisabled
-                  ? "border-zinc-700 bg-zinc-800 text-zinc-500"
-                  : "bg-cyan-600 hover:bg-cyan-500"
+                  ? "bg-[#f1ede6] text-[#e4dbcd]"
+                  : "bg-[#1A1A1A] text-white"
+              )}
+              disabled={actionDisabled}
+              onClick={() => void handleHumanAction("fold", 0, "弃牌")}
+            >
+              弃牌
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "min-w-0 rounded-xl px-2 py-2.5 text-[12px] font-bold shadow-sm transition active:scale-[0.97]",
+                actionDisabled
+                  ? "bg-[#f1ede6] text-[#e4dbcd]"
+                  : "bg-[#788d5d] text-white"
               )}
               disabled={actionDisabled}
               onClick={() =>
@@ -1257,37 +1153,40 @@ ${aiBrief || "（无）"}
             <button
               type="button"
               className={cn(
-                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
-                actionDisabled ? "border-zinc-700 bg-zinc-800 text-zinc-500" : "bg-sky-600 hover:bg-sky-500"
+                "min-w-0 rounded-xl px-2 py-2.5 text-[12px] font-bold shadow-sm transition active:scale-[0.97]",
+                actionDisabled || !canHumanRaise
+                  ? "bg-[#f1ede6] text-[#e4dbcd]"
+                  : "bg-[#d97757] text-white"
               )}
-              disabled={actionDisabled}
-              onClick={() => void handleHumanAction("fold", 0, "弃牌")}
+              disabled={actionDisabled || !canHumanRaise}
+              onClick={() => setShowRaiseOptions((s) => !s)}
             >
-              弃牌
+              {state.raiseCountThisRound >= 3 ? "加注封顶" : `加注 ${selectedRaiseDelta}bb`}
             </button>
           </div>
           <button
             type="button"
             className={cn(
-              "mt-1 w-full rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
-              isResolving ? "border-zinc-700 bg-zinc-800 text-zinc-500" : "bg-zinc-800/80 hover:bg-zinc-700"
+              "mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition active:scale-[0.98]",
+              isResolving ? "bg-[#f1ede6] text-[#e4dbcd]" : "bg-[#faf9f6] text-[#788d5d] hover:bg-[#f1ede6]"
             )}
             disabled={isResolving}
             onClick={() => void newHand()}
           >
-            {state.isHandOver ? "新一局" : "下一局"}
+            <RefreshCcw className="h-3.5 w-3.5" />
+            新一局
           </button>
         </div>
       </div>
-      {showRaiseOptions ? (
+      {showRaiseOptions && (
         <div
-          className="fixed inset-0 z-20 bg-transparent"
+          className="fixed inset-0 z-20"
           onClick={() => setShowRaiseOptions(false)}
           aria-hidden="true"
         />
-      ) : null}
-      {showRaiseOptions ? (
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-1/2 z-50 w-[96%] max-w-[360px] -translate-x-1/2 rounded-2xl bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl md:hidden">
+      )}
+      {showRaiseOptions && (
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-1/2 z-50 w-[96%] max-w-[380px] -translate-x-1/2 rounded-2xl border border-[#e9e5dc] bg-white/95 p-2 shadow-xl backdrop-blur-xl md:hidden">
           {raiseChoices.map((opt) => (
             <button
               key={opt.key}
@@ -1296,19 +1195,18 @@ ${aiBrief || "（无）"}
                 setShowRaiseOptions(false);
                 void handleHumanAction("raise", opt.value, opt.key === "allin" ? "全下" : `加注 ${opt.key}`);
               }}
-              className={`mb-1 w-full rounded-xl px-2 py-2 text-left text-[12px] font-semibold last:mb-0 ${
-                raiseMode === opt.key
-                  ? "bg-sky-500 text-white"
-                  : opt.variant === "destructive"
-                    ? "bg-red-600/90 text-white hover:bg-red-500"
-                    : "bg-zinc-700 text-zinc-100 hover:bg-zinc-600"
-              }`}
+              className={cn(
+                "mb-1 w-full rounded-xl px-3 py-2.5 text-left text-[12px] font-bold last:mb-0 transition-colors",
+                raiseMode === opt.key ? "bg-[#d97757] text-white" :
+                opt.variant === "destructive" ? "bg-[#c46687] text-white" :
+                "bg-[#faf9f6] text-[#1A1A1A] hover:bg-[#f1ede6]"
+              )}
             >
               {opt.label}
             </button>
           ))}
         </div>
-      ) : null}
+      )}
     </main>
   );
 }

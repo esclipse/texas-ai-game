@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf9f6;
+  --foreground: #1a1a1a;
 }
 
 @theme inline {
@@ -12,15 +12,46 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Poker Table */
+@keyframes seat-glow {
+  0%, 100% { box-shadow: 0 0 12px 1px rgba(217,119,87,0.25), inset 0 0 0 1px rgba(217,119,87,0.3); }
+  50% { box-shadow: 0 0 20px 3px rgba(217,119,87,0.4), inset 0 0 0 1px rgba(217,119,87,0.5); }
+}
+@keyframes win-glow {
+  0%, 100% { box-shadow: 0 0 14px 2px rgba(217,119,87,0.25); }
+  50% { box-shadow: 0 0 24px 5px rgba(217,119,87,0.45); }
+}
+.seat-active { animation: seat-glow 2s ease-in-out infinite; }
+.seat-winner { animation: win-glow 1.5s ease-in-out infinite; }
+
+.poker-rail {
+  background: linear-gradient(160deg, #d97757, #a05a40 30%, #6e3d2a 60%, #3a2016);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 8px 32px rgba(0,0,0,0.18),
+    0 2px 8px rgba(0,0,0,0.1);
+}
+
+.poker-felt {
+  background: radial-gradient(ellipse 110% 90% at 50% 48%, #788d5d, #667a50 22%, #566a44 48%, #485a3a 72%, #3a4c30);
+}
+
+.poker-felt-inner {
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.35), inset 0 2px 1px rgba(255,255,255,0.02);
+}
+
+.card-back {
+  background:
+    repeating-linear-gradient(
+      55deg,
+      transparent, transparent 3px,
+      rgba(120,141,93,0.08) 3px, rgba(120,141,93,0.08) 5px
+    ),
+    linear-gradient(160deg, #788d5d, #566a44 50%, #3a4c30);
 }
