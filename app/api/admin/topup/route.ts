@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { getAdminToken } from "@/lib/app-config";
 
 type Body = {
   adminToken: string;
@@ -10,7 +11,7 @@ type Body = {
 };
 
 function requireAdmin(body: Partial<Body>) {
-  const expected = (process.env.ADMIN_TOKEN ?? "").trim();
+  const expected = getAdminToken();
   if (!expected) return { ok: false as const, error: "Missing ADMIN_TOKEN on server" };
   const got = typeof body.adminToken === "string" ? body.adminToken.trim() : "";
   if (!got || got !== expected) return { ok: false as const, error: "Unauthorized" };

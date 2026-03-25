@@ -9,6 +9,11 @@ export type Player = {
   stack: number;
   isHuman: boolean;
   model: string;
+  /**
+   * Stable routing key for LLM selection.
+   * For built-in characters this is fixed; for user-created buddies you can generate one.
+   */
+  llmRef?: string;
   style: PlayStyle;
   emotion: EmotionTone;
   memory: string[];
@@ -16,6 +21,16 @@ export type Player = {
   currentBet: number;
   handContribution: number;
   systemPrompt: string;
+};
+
+export type PublicRole = {
+  /** Optional seat override: ai-1..ai-5 */
+  seat?: string;
+  llmRef: string;
+  name: string;
+  style?: PlayStyle;
+  emotion?: EmotionTone;
+  systemPrompt?: string;
 };
 
 export type TableAction = {
@@ -96,11 +111,11 @@ export function chatLogLabelAndColor(
   };
 }
 
-export function createDefaultPlayers(): Player[] {
-  const primaryModel = process.env.NEXT_PUBLIC_QWEN_MODEL || "aliyun/Qwen3-Coder-Plus";
-  const secondaryModel = process.env.NEXT_PUBLIC_QWEN_MODEL_2 || "aliyun/Qwen3-Coder-32B-Instruct";
+export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] {
+  const primaryModel = "aliyun/Qwen3-Coder-Plus";
+  const secondaryModel = "aliyun/Qwen3-Coder-32B-Instruct";
 
-  return [
+  const base: Player[] = [
     {
       id: "human",
       name: "你",
@@ -121,6 +136,7 @@ export function createDefaultPlayers(): Player[] {
       stack: 200,
       isHuman: false,
       model: primaryModel,
+      llmRef: "npc_dapao",
       style: "lag",
       emotion: "aggressive",
       memory: [],
@@ -147,6 +163,7 @@ export function createDefaultPlayers(): Player[] {
       stack: 200,
       isHuman: false,
       model: secondaryModel,
+      llmRef: "npc_xiaoqi",
       style: "tricky",
       emotion: "teasing",
       memory: [],
@@ -172,6 +189,7 @@ export function createDefaultPlayers(): Player[] {
       stack: 200,
       isHuman: false,
       model: primaryModel,
+      llmRef: "npc_zge",
       style: "nit",
       emotion: "calm",
       memory: [],
@@ -208,6 +226,7 @@ export function createDefaultPlayers(): Player[] {
       stack: 200,
       isHuman: false,
       model: secondaryModel,
+      llmRef: "npc_dongzi",
       style: "lag",
       emotion: "aggressive",
       memory: [],
@@ -232,6 +251,7 @@ export function createDefaultPlayers(): Player[] {
       stack: 200,
       isHuman: false,
       model: primaryModel,
+      llmRef: "npc_chacha",
       style: "tricky",
       emotion: "friendly",
       memory: [],
@@ -252,6 +272,51 @@ export function createDefaultPlayers(): Player[] {
 - 最终只输出一句中文互动话术，12~32字。`,
     },
   ];
+
+  const roles = opts?.roles ?? [];
+  if (!Array.isArray(roles) || roles.length === 0) return base;
+
+  const seats = ["ai-1", "ai-2", "ai-3", "ai-4", "ai-5"] as const;
+  const roleBySeat = new Map<string, PublicRole>();
+  const normalized = roles
+    .filter((r) => r && typeof r === "object")
+    .map((r) => {
+      const llmRef = String(r.llmRef ?? "").trim();
+      const name = String(r.name ?? "").trim();
+      const seat = typeof r.seat === "string" ? r.seat.trim() : "";
+      return { ...r, llmRef, name, seat } as PublicRole & { seat: string };
+    })
+    .filter((r) => r.llmRef && r.name);
+
+  // 1) Explicit seat binding wins.
+  for (const r of normalized) {
+    if (!r.seat) continue;
+    if (!seats.includes(r.seat as (typeof seats)[number])) continue;
+    roleBySeat.set(r.seat, r);
+  }
+
+  // 2) The rest fill remaining seats in order (backward compatible).
+  const remainingSeats = seats.filter((s) => !roleBySeat.has(s));
+  const remainingRoles = normalized.filter((r) => !r.seat || !seats.includes(r.seat as (typeof seats)[number]));
+  remainingRoles.slice(0, remainingSeats.length).forEach((r, idx) => {
+    roleBySeat.set(remainingSeats[idx] as string, r);
+  });
+
+  return base.map((p) => {
+    if (p.isHuman) return p;
+    const r = roleBySeat.get(p.id);
+    if (!r) return p;
+    return {
+      ...p,
+      name: r.name,
+      llmRef: r.llmRef,
+      style: r.style ?? p.style,
+      emotion: r.emotion ?? p.emotion,
+      systemPrompt: r.systemPrompt ?? p.systemPrompt,
+      // keep a readable label; server routes by llmRef anyway
+      model: r.llmRef,
+    };
+  });
 }
 
 function nextActiveSeat(players: Player[], fromIndex: number): number {

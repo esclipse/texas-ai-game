@@ -1,8 +1,7 @@
 import { convertToModelMessages, generateText, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 
-const FALLBACK_QWEN_API_KEY =
-  "UPM4KSSD4PGCRXTP4UCR2LM3IPVLUG24LUQBSJUW6QGVLABN6EIQ466PG2V73XCL3X4VA4OGEG2C5UU6EYX3R7OVJCSVY2JX62GIDZZYWNJOR43HGF2KAWMS2ZFG7XWF7CKN7PKXMQV75EVDU4PMEZB27Y======";
+import { getLlmConfig } from "@/lib/app-config";
 
 function sanitizeAsciiToken(raw: string | undefined) {
   const trimmed = (raw ?? "").trim();
@@ -13,13 +12,7 @@ function sanitizeAsciiToken(raw: string | undefined) {
   return { ok: true as const, value: trimmed };
 }
 
-const QWEN_API_KEY = (() => {
-  const env = sanitizeAsciiToken(process.env.QWEN_API_KEY);
-  if (env.ok) return env.value;
-  return FALLBACK_QWEN_API_KEY;
-})();
-const QWEN_BASE_URL = process.env.QWEN_BASE_URL;
-const QWEN_MODEL = process.env.QWEN_MODEL;
+const { providersForChat } = getLlmConfig();
 
 export const maxDuration = 30;
 
@@ -28,9 +21,6 @@ function sseLine(data: unknown) {
 }
 
 export async function POST(req: Request) {
-  if (!QWEN_API_KEY) {
-    return new Response("Missing QWEN_API_KEY", { status: 500 });
-  }
   const body = (await req.json()) as {
     messages?: unknown[];
     gameContext?: unknown;
@@ -55,11 +45,6 @@ export async function POST(req: Request) {
 ${gameContext || "（无）"}
 `.trim();
 
-  const openai = createOpenAI({
-    apiKey: QWEN_API_KEY,
-    baseURL: QWEN_BASE_URL,
-  });
-
   const typedUiMessages = uiMessages as UIMessage[];
   const maxMessages = 12;
   const recentUiMessages = typedUiMessages.slice(-maxMessages);
@@ -71,36 +56,57 @@ ${gameContext || "（无）"}
 
   const modelMessages = await convertToModelMessages(recentWithoutId);
 
-  const result = await generateText({
-    // QWEN gateway is OpenAI Chat Completions compatible.
-    model: openai.chat(QWEN_MODEL as never),
-    messages: [{ role: "system", content: systemPrompt }, ...modelMessages],
-    temperature: 0.7,
-    maxOutputTokens: 200,
-  });
+  let lastErr: unknown = null;
+  for (const p of providersForChat) {
+    const apiKey = (() => {
+      const env = sanitizeAsciiToken(p.apiKey);
+      if (env.ok) return env.value;
+      return "";
+    })();
+    const baseURL = (p.baseUrl ?? "").trim();
+    const modelName = (p.models?.chat ?? "").trim();
+    if (!apiKey || !baseURL || !modelName) {
+      lastErr = new Error(`Missing provider config: ${p.id}`);
+      continue;
+    }
 
-  const text = (result.text ?? "").trim();
-  const messageId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}`;
+    try {
+      const openai = createOpenAI({ apiKey, baseURL });
+      const result = await generateText({
+        model: openai.chat(modelName as never),
+        messages: [{ role: "system", content: systemPrompt }, ...modelMessages],
+        temperature: 0.7,
+        maxOutputTokens: 200,
+      });
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const enc = new TextEncoder();
-      controller.enqueue(enc.encode(sseLine({ type: "start", messageId })));
-      controller.enqueue(enc.encode(sseLine({ type: "text-start", id: messageId })));
-      if (text) controller.enqueue(enc.encode(sseLine({ type: "text-delta", id: messageId, delta: text })));
-      controller.enqueue(enc.encode(sseLine({ type: "text-end", id: messageId })));
-      controller.enqueue(enc.encode(sseLine({ type: "finish", finishReason: "stop" })));
-      controller.enqueue(enc.encode(sseLine("[DONE]")));
-      controller.close();
-    },
-  });
+      const text = (result.text ?? "").trim();
+      const messageId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}`;
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const enc = new TextEncoder();
+          controller.enqueue(enc.encode(sseLine({ type: "start", messageId })));
+          controller.enqueue(enc.encode(sseLine({ type: "text-start", id: messageId })));
+          if (text) controller.enqueue(enc.encode(sseLine({ type: "text-delta", id: messageId, delta: text })));
+          controller.enqueue(enc.encode(sseLine({ type: "text-end", id: messageId })));
+          controller.enqueue(enc.encode(sseLine({ type: "finish", finishReason: "stop" })));
+          controller.enqueue(enc.encode(sseLine("[DONE]")));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  const msg = lastErr instanceof Error ? lastErr.message : "LLM providers all failed";
+  return new Response(msg, { status: 502 });
 }
-

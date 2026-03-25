@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { aiDecision, type HandState, type Player } from "@/lib/game";
+import { getLlmConfig } from "@/lib/app-config";
+import { pickAiActionModelByAi, postChatCompletionsWithFallback } from "@/lib/llm/fallback";
 
-const QWEN_API_KEY = process.env.QWEN_API_KEY;
-const QWEN_BASE_URL = process.env.QWEN_BASE_URL;
-const QWEN_MODEL = process.env.QWEN_MODEL;
-const QWEN_MODEL_2 = process.env.QWEN_MODEL_2;
-const MODEL_TIMEOUT_MS = Number(process.env.QWEN_TIMEOUT_MS || 9000);
+const { providersForAiAction } = getLlmConfig();
 
 type RequestBody = {
   state: HandState;
@@ -59,8 +57,6 @@ export async function POST(req: Request) {
   const { state, ai } = (await req.json()) as RequestBody;
   const fallback = aiDecision(state, ai);
 
-  const modelForAI = ai.model || (ai.id === "ai-2" || ai.id === "ai-4" ? QWEN_MODEL_2 : QWEN_MODEL);
-
   try {
     const recent = state.actions.filter((a) => a.actor !== "系统").slice(0, 8);
     const previous = recent[0];
@@ -93,16 +89,11 @@ export async function POST(req: Request) {
 5) 若长期记忆里有对某个玩家的印象，可自然带入一句，但不要生硬背诵。
 `.trim();
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
-    const resp = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${QWEN_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: modelForAI,
+    const { resp } = await postChatCompletionsWithFallback({
+      providers: providersForAiAction,
+      model: (p) => pickAiActionModelByAi(p, ai),
+      timeoutMs: (p) => p.timeoutMs ?? 9000,
+      body: {
         temperature: 0.9,
         messages: [
           {
@@ -113,11 +104,10 @@ export async function POST(req: Request) {
           },
           { role: "user", content: prompt },
         ],
-      }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timer));
+      },
+    });
 
-    if (!resp.ok) {
+    if (!resp || !resp.ok) {
       return NextResponse.json({ ...fallback, text: ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text });
     }
 

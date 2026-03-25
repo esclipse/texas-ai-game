@@ -14,6 +14,7 @@ import {
   createNewHand,
   type ActionType,
   type Player,
+  type PublicRole,
 } from "@/lib/game";
 import { appendAiMemory, loadAiMemories } from "@/lib/ai-memory";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,7 @@ export default function Home() {
   const [initialHand] = useState(() => createNewHand(1, createDefaultPlayers()));
   const [handId, setHandId] = useState(1);
   const [state, setState] = useState(initialHand);
+  const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
   const [isResolving, setIsResolving] = useState(false);
@@ -72,6 +74,7 @@ export default function Home() {
   const nextStreetRef = useRef<() => Promise<void>>(async () => {});
   const lastProcessedActionRef = useRef("");
   const recordListRef = useRef<HTMLDivElement | null>(null);
+  const appliedPublicRolesRef = useRef(false);
 
   // Visitor id + initial chip balance (Supabase backed)
   useEffect(() => {
@@ -104,16 +107,57 @@ export default function Home() {
     };
   }, []);
 
+  // Load public config (roles etc.) once.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const resp = await fetch("/api/public-config");
+        const data = (await resp.json()) as { public?: { roles?: PublicRole[] } };
+        if (!resp.ok) return;
+        const roles = Array.isArray(data.public?.roles) ? data.public?.roles : [];
+        if (cancelled) return;
+        setPublicRoles(roles);
+      } catch {
+        // ignore
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Once we have visitor balance, rebuild the initial hand using that balance (avoids refresh resetting to 200).
   useEffect(() => {
     if (visitorBalance == null) return;
-    const players = createDefaultPlayers().map((p) => (p.id === "human" ? { ...p, stack: visitorBalance } : p));
+    const players = createDefaultPlayers({ roles: publicRoles ?? undefined }).map((p) =>
+      p.id === "human" ? { ...p, stack: visitorBalance } : p
+    );
     const next = createNewHand(1, players);
     lastSyncedBalanceRef.current = visitorBalance;
     syncState(next);
     setHandId(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visitorBalance]);
+  }, [visitorBalance, publicRoles]);
+
+  // If roles arrive after first render (and before any real play), rehydrate once.
+  useEffect(() => {
+    if (appliedPublicRolesRef.current) return;
+    if (!publicRoles || publicRoles.length === 0) return;
+    const isFresh = stateRef.current.handId === 1 && stateRef.current.actions.length <= 1;
+    if (!isFresh) return;
+    appliedPublicRolesRef.current = true;
+
+    const humanStack =
+      typeof visitorBalance === "number"
+        ? visitorBalance
+        : stateRef.current.players.find((p) => p.id === "human")?.stack ?? 200;
+
+    const players = createDefaultPlayers({ roles: publicRoles }).map((p) => (p.id === "human" ? { ...p, stack: humanStack } : p));
+    const next = createNewHand(1, players);
+    syncState(next);
+  }, [publicRoles, visitorBalance]);
 
   // Debounced chip balance sync to Supabase (server-side).
   useEffect(() => {
@@ -722,8 +766,8 @@ ${aiBrief || "（无）"}
   const actionDisabled = isBusted || state.isHandOver || !isHumanTurn || isResolving;
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl bg-[#04070b] p-2 pb-[calc(11.5rem+env(safe-area-inset-bottom))] text-zinc-100 sm:bg-zinc-50 sm:p-5 sm:pb-5 sm:text-zinc-900 lg:pb-5 lg:p-5">
-      <div className="mb-2 space-y-1.5 rounded-xl border border-zinc-700/70 bg-zinc-950/65 p-2 shadow-[0_8px_24px_rgba(0,0,0,0.32)] backdrop-blur sm:mb-3 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+    <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-hidden bg-[#04070b] p-2 pb-0 text-zinc-100 sm:min-h-screen sm:h-auto sm:overflow-auto sm:bg-zinc-50 sm:p-5 sm:pb-5 sm:text-zinc-900 lg:pb-5 lg:p-5">
+      <div className="mb-2 shrink-0 space-y-1.5 rounded-xl bg-zinc-950/65 p-2 shadow-[0_8px_24px_rgba(0,0,0,0.32)] backdrop-blur sm:mb-3 sm:rounded-none sm:bg-transparent sm:p-0 sm:shadow-none">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[11px] text-zinc-400 sm:text-zinc-500 lg:hidden">娱乐桌 · 1/2bb · 6人</p>
@@ -779,36 +823,50 @@ ${aiBrief || "（无）"}
         <div className="flex gap-1 overflow-x-auto pb-0.5 pl-0.5 [-ms-overflow-style:none] [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden">
           {state.players.map((p, seatIndex) => {
             const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
+            const dotClass = isToAct
+              ? "bg-cyan-300"
+              : !p.inHand
+                ? "bg-zinc-600"
+                : p.id === "human"
+                  ? "bg-sky-300"
+                  : "bg-emerald-300/80";
             return (
               <div
                 key={p.id}
                 className={cn(
-                  "flex min-w-[4.9rem] shrink-0 flex-col rounded-md px-1.5 py-1.5",
+                  "flex min-w-17 shrink-0 flex-col rounded-md px-1 py-1",
                   isToAct
                     ? "border-cyan-300/45 bg-cyan-950/65"
                     : "bg-zinc-900/70"
                 )}
               >
-                <span className="text-[9px] leading-tight text-zinc-300">{mobileAliasSeatTitle(seatIndex, p)}</span>
-                <span className="text-[10px] font-medium text-zinc-100">{playerStripStatus(p, seatIndex)}</span>
-                <span className="tabular-nums text-[11px] font-semibold text-cyan-200">{p.stack}</span>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate text-[8px] font-medium leading-tight text-zinc-300">
+                    {mobileAliasSeatTitle(seatIndex, p)}
+                  </span>
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />
+                </div>
+                <div className="mt-0.5 flex items-baseline justify-between gap-1">
+                  <span className="truncate text-[8px] leading-none text-zinc-400">{getMobilePlayerSubtext(p)}</span>
+                  <span className="shrink-0 tabular-nums text-[10px] font-semibold text-cyan-200">{p.stack}</span>
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="grid gap-2 lg:grid-cols-[1fr_320px] lg:gap-3">
-        <div className="space-y-2 lg:space-y-3">
+      <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[1fr_320px] lg:gap-3">
+        <div className="min-h-0 space-y-2 lg:space-y-3">
           <Card className="border-0 bg-zinc-950/65 text-white shadow-none sm:border sm:border-zinc-800/60 sm:shadow-sm lg:bg-zinc-950/55">
             <CardHeader className="hidden p-4 lg:block">
               <CardTitle className="text-base text-zinc-100">牌桌</CardTitle>
               <CardDescription className="text-zinc-500">德州牌局</CardDescription>
             </CardHeader>
-            <CardContent className="relative p-2 pt-0 sm:p-4 sm:pt-0 lg:p-6 lg:pt-0">
+            <CardContent className="relative flex min-h-0 flex-col p-2 pt-0 sm:p-4 sm:pt-0 lg:p-6 lg:pt-0">
               <div
                 className={cn(
-                  "rounded-xl border border-zinc-800/70 bg-zinc-900/35 p-1.5 sm:rounded-2xl sm:p-3",
+                  "flex min-h-0 flex-1 flex-col rounded-xl bg-zinc-900/35 p-1.5 sm:rounded-2xl sm:p-3",
                   pcTableThemeStyles[pcTableTheme].tableOverlayClass
                 )}
               >
@@ -858,7 +916,6 @@ ${aiBrief || "（无）"}
                                     className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.9)]"
                                     aria-label="active-turn"
                                   />
-                                  {!p.isHuman ? <Loader2 className="h-3 w-3 animate-spin text-sky-300" /> : null}
                                 </span>
                               ) : null}
                               {isFolded ? <Badge className="bg-zinc-200 text-[10px] text-zinc-800">弃牌</Badge> : null}
@@ -932,12 +989,13 @@ ${aiBrief || "（无）"}
                   </div>
                 </div>
 
-                <div className="relative mx-auto mb-2 h-[min(66vh,27rem)] w-full max-w-[20rem] lg:hidden">
+                <div className="relative mx-auto flex w-full flex-1 items-center justify-center lg:hidden">
+                  <div className="relative h-[min(58dvh,34rem)] w-[min(92vw,26rem)]">
                   <div
                     className="absolute inset-[2%] rounded-[50%] border border-fuchsia-300/20 bg-linear-to-b from-teal-900/95 via-cyan-900/80 to-zinc-950 shadow-[inset_0_0_50px_rgba(0,0,0,0.34)]"
                     aria-hidden
                   />
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 z-5 w-[64%] max-w-48 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-fuchsia-300/20 bg-zinc-950/55 px-2.5 py-2 text-center backdrop-blur-xl shadow-[0_12px_44px_rgba(0,0,0,0.38)]">
+                  <div className="pointer-events-none absolute left-1/2 top-[45%] z-20 w-[58%] max-w-56 -translate-x-1/2 -translate-y-1/2 px-2 py-1.5 text-center">
                     <div className="mb-1 flex items-center justify-center gap-1 text-[11px] text-white">
                       <Coins className="h-3.5 w-3.5 text-fuchsia-300" aria-hidden />
                       <span>
@@ -950,18 +1008,22 @@ ${aiBrief || "（无）"}
                       ))}
                     </div>
                   </div>
-                  <div className="absolute bottom-[15%] left-1/2 z-30 flex -translate-x-1/2 gap-1">
-                    {cardView(humanCards[0], false, true)}
-                    {cardView(humanCards[1], false, true)}
-                  </div>
                   {(() => {
                     const ovalSlots = [
-                      "top-1 left-1/2 -translate-x-1/2",
-                      "top-[10%] right-1",
-                      "bottom-[32%] right-0.5",
-                      "bottom-[2%] left-1/2 -translate-x-1/2",
-                      "bottom-[32%] left-0.5",
-                      "top-[10%] left-1",
+                      "top-[6%] left-1/2 -translate-x-1/2",
+                      "top-[18%] right-[5%]",
+                      "bottom-[36%] right-[5%]",
+                      "bottom-[10%] left-1/2 -translate-x-1/2",
+                      "bottom-[36%] left-[5%]",
+                      "top-[18%] left-[5%]",
+                    ];
+                    const chipSlots = [
+                      "top-[22%] left-1/2 -translate-x-1/2",
+                      "top-[32%] right-[20%]",
+                      "bottom-[42%] right-[20%]",
+                      "bottom-[22%] left-1/2 -translate-x-1/2",
+                      "bottom-[42%] left-[20%]",
+                      "top-[32%] left-[20%]",
                     ];
                     return seats.map((p, idx) => {
                       const seatIndex = seatIndexById.get(p.id) ?? -1;
@@ -972,7 +1034,7 @@ ${aiBrief || "（无）"}
                       return (
                         <div
                           key={p.id}
-                          className={cn("absolute z-10 w-[5.05rem]", ovalSlots[idx])}
+                          className={cn("absolute z-10 w-[4.6rem]", ovalSlots[idx])}
                           style={
                             winFx?.winners.includes(p.name)
                               ? {
@@ -983,24 +1045,23 @@ ${aiBrief || "（无）"}
                         >
                           <div
                             className={cn(
-                              "relative box-border overflow-hidden rounded-md border border-transparent text-[10px] leading-tight",
-                              isToAct && "border-cyan-300/45",
+                              "relative box-border overflow-visible rounded-md border border-transparent text-[9px] leading-tight",
                               !isToAct && isFolded && "opacity-65",
                               !isToAct && !isFolded && ""
                             )}
                           >
-                            {isDealer ? (
-                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-400 text-[8px] font-bold text-cyan-950">
-                                D
-                              </span>
-                            ) : null}
                             <div
                               className={cn(
-                                "px-1 py-1",
+                                "px-0.5 py-0.5",
                                 isFolded ? "bg-zinc-800/45" : "bg-zinc-900/75"
                               )}
                             >
-                              {p.id !== "human" ? (
+                              {p.id === "human" ? (
+                                <div className="relative z-40 mb-0.5 flex justify-center">
+                                  <div className="relative z-40 -translate-y-1 -rotate-10">{cardView(humanCards[0], false, true)}</div>
+                                  <div className="relative z-40 -ml-2 -translate-y-1 rotate-10">{cardView(humanCards[1], false, true)}</div>
+                                </div>
+                              ) : (
                                 <div className="mb-0.5 flex justify-center gap-px">
                                   {revealAllHoleCards ? (
                                     <>
@@ -1014,32 +1075,15 @@ ${aiBrief || "（无）"}
                                     </>
                                   )}
                                 </div>
-                              ) : (
-                                <div className="h-6" />
                               )}
-                              <div className="space-y-0.5 text-center">
-                                <div className="truncate text-[12px] font-semibold leading-none text-cyan-100">{seatTitle}</div>
-                                <div
-                                  className={cn(
-                                    "truncate rounded-sm px-1 py-0.5 text-[9px] leading-none",
-                                    isFolded ? "bg-zinc-800/70 text-zinc-300" : "bg-black/25 text-cyan-100/90"
-                                  )}
-                                >
-                                  {isFolded ? "弃牌" : getMobilePlayerSubtext(p)}
-                                </div>
-                              </div>
-                              <div className="mt-px flex justify-center gap-px">
-                                {isToAct ? (
-                                  <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-sky-300" />
-                                ) : null}
-                                {thinkingActorId === p.id && !state.isHandOver ? (
-                                  <Loader2 className="h-2 w-2 animate-spin text-cyan-200" />
-                                ) : null}
+                              <div className="flex items-center justify-center gap-1">
+                                <div className="truncate text-[10px] font-semibold leading-none text-cyan-100">{seatTitle}</div>
+                                {isToAct ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" /> : null}
                               </div>
                             </div>
                             <div
                               className={cn(
-                                "py-1 text-center text-[12px] font-bold leading-none tabular-nums text-cyan-100",
+                                "py-0.5 text-center text-[11px] font-bold leading-none tabular-nums text-cyan-100",
                                 winFx?.winners.includes(p.name) ? "text-red-300" : ""
                               )}
                             >
@@ -1050,6 +1094,37 @@ ${aiBrief || "（无）"}
                       );
                     });
                   })()}
+                  {(() => {
+                    const chipSlots = [
+                      "top-[24%] left-1/2 -translate-x-1/2",
+                      "top-[33%] right-[26%]",
+                      "bottom-[44%] right-[26%]",
+                      "bottom-[27%] left-1/2 -translate-x-1/2",
+                      "bottom-[44%] left-[26%]",
+                      "top-[33%] left-[26%]",
+                    ];
+                    return seats.map((p, idx) => {
+                      const seatIndex = seatIndexById.get(p.id) ?? -1;
+                      void seatIndex;
+                      const bet = Math.max(0, Math.floor(p.currentBet));
+                      if (!p.inHand || bet <= 0) return null;
+                      return (
+                        <div
+                          key={`chip-${p.id}`}
+                          className={cn("pointer-events-none absolute z-20", chipSlots[idx])}
+                        >
+                          <div className="flex items-center gap-1 px-0.5 py-0.5 text-[10px] font-semibold tabular-nums text-cyan-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                            <span className="relative h-4 w-4">
+                              <span className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-linear-to-b from-amber-200 to-amber-500 shadow-[0_2px_10px_rgba(0,0,0,0.35)] ring-1 ring-black/25" />
+                              <span className="absolute left-1.5 top-1.5 h-1 w-1 rounded-full bg-white/55" />
+                            </span>
+                            <span>{bet}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  </div>
                 </div>
 
                 <div className="relative hidden grid-cols-3 gap-2 md:grid">
@@ -1119,7 +1194,7 @@ ${aiBrief || "（无）"}
         </div>
 
         <div className="space-y-2 lg:sticky lg:top-3 lg:self-start lg:space-y-3">
-          <Card id="game-log" className="border border-zinc-200 bg-white shadow-sm">
+          <Card id="game-log" className="hidden md:block border border-zinc-200 bg-white shadow-sm">
             <CardContent className="px-2 pb-3 pt-0 sm:px-2 sm:py-1">
               <div className="hidden md:block">
                 <div className="h-[min(66vh,36rem)] min-h-0">
@@ -1135,13 +1210,13 @@ ${aiBrief || "（无）"}
           </Card>
         </div>
       </div>
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-700/70 bg-zinc-950/92 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur-xl md:hidden">
-        <div className="mx-auto max-w-6xl space-y-2 px-2">
-          <div className="relative grid grid-cols-2 gap-2">
+      <div className="fixed bottom-0 left-1/2 z-40 w-[96%] max-w-[360px] -translate-x-1/2 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <div className="rounded-2xl bg-zinc-950/92 p-1.5 shadow-2xl backdrop-blur-xl">
+          <div className="grid grid-cols-2 gap-1">
             <button
               type="button"
               className={cn(
-                "rounded-xl border border-transparent py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98]",
+                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
                 actionDisabled || human.stack <= 0 || human.stack <= humanToCall
                   ? "border-zinc-700 bg-zinc-800 text-zinc-500"
                   : "bg-red-700 hover:bg-red-600"
@@ -1154,7 +1229,7 @@ ${aiBrief || "（无）"}
             <button
               type="button"
               className={cn(
-                "rounded-xl border border-transparent py-3 text-sm font-semibold transition active:scale-[0.98]",
+                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold transition active:scale-[0.98]",
                 actionDisabled || !canHumanRaise
                   ? "border-zinc-700 bg-zinc-800 text-zinc-500"
                   : "bg-rose-500 text-white hover:bg-rose-400"
@@ -1167,7 +1242,7 @@ ${aiBrief || "（无）"}
             <button
               type="button"
               className={cn(
-                "rounded-xl border border-transparent py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98]",
+                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
                 actionDisabled
                   ? "border-zinc-700 bg-zinc-800 text-zinc-500"
                   : "bg-cyan-600 hover:bg-cyan-500"
@@ -1182,7 +1257,7 @@ ${aiBrief || "（无）"}
             <button
               type="button"
               className={cn(
-                "rounded-xl border border-transparent py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98]",
+                "min-w-0 rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
                 actionDisabled ? "border-zinc-700 bg-zinc-800 text-zinc-500" : "bg-sky-600 hover:bg-sky-500"
               )}
               disabled={actionDisabled}
@@ -1191,41 +1266,17 @@ ${aiBrief || "（无）"}
               弃牌
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-2 pt-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 border border-zinc-700/80 bg-zinc-900/65 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              onClick={() => document.getElementById("game-log")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
-            >
-              <MessageCircleHeart className="mr-1 h-4 w-4" />
-              记录
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 border border-zinc-700/80 bg-zinc-900/65 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              disabled={isResolving}
-              onClick={() => void newHand()}
-            >
-              <RefreshCcw className="mr-1 h-4 w-4" />
-              新一局
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 border border-zinc-700/80 bg-zinc-900/65 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              onClick={() => {
-                window.location.href = `mailto:regretn@163.com?subject=${encodeURIComponent("鱼桌 - 用户反馈")}`;
-              }}
-            >
-              <Send className="mr-1 h-4 w-4" />
-              联系
-            </Button>
-          </div>
+          <button
+            type="button"
+            className={cn(
+              "mt-1 w-full rounded-xl border border-transparent px-1.5 py-2 text-[11px] font-semibold text-white shadow-sm transition active:scale-[0.98]",
+              isResolving ? "border-zinc-700 bg-zinc-800 text-zinc-500" : "bg-zinc-800/80 hover:bg-zinc-700"
+            )}
+            disabled={isResolving}
+            onClick={() => void newHand()}
+          >
+            {state.isHandOver ? "新一局" : "下一局"}
+          </button>
         </div>
       </div>
       {showRaiseOptions ? (
@@ -1236,7 +1287,7 @@ ${aiBrief || "（无）"}
         />
       ) : null}
       {showRaiseOptions ? (
-        <div className="fixed bottom-36 left-0 right-0 z-50 mx-auto w-[90%] max-w-sm rounded-2xl border border-zinc-700 bg-zinc-950/95 p-2 shadow-2xl md:hidden">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-1/2 z-50 w-[96%] max-w-[360px] -translate-x-1/2 rounded-2xl bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl md:hidden">
           {raiseChoices.map((opt) => (
             <button
               key={opt.key}
@@ -1245,7 +1296,7 @@ ${aiBrief || "（无）"}
                 setShowRaiseOptions(false);
                 void handleHumanAction("raise", opt.value, opt.key === "allin" ? "全下" : `加注 ${opt.key}`);
               }}
-              className={`mb-1 w-full rounded px-2 py-2 text-left text-sm font-semibold last:mb-0 ${
+              className={`mb-1 w-full rounded-xl px-2 py-2 text-left text-[12px] font-semibold last:mb-0 ${
                 raiseMode === opt.key
                   ? "bg-sky-500 text-white"
                   : opt.variant === "destructive"
