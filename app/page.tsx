@@ -72,8 +72,8 @@ export default function Home() {
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [authEmail, setAuthEmail] = useState<string>("");
   const [showLoginPanel, setShowLoginPanel] = useState(false);
+  const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [authMessage, setAuthMessage] = useState<string>("");
   const [authBusy, setAuthBusy] = useState(false);
@@ -174,12 +174,10 @@ export default function Home() {
       if (!alive) return;
       const session = data.session;
       setAuthUserId(session?.user?.id ?? null);
-      setAuthEmail(session?.user?.email ?? "");
       setAuthToken(session?.access_token ?? null);
     });
     const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
       setAuthUserId(session?.user?.id ?? null);
-      setAuthEmail(session?.user?.email ?? "");
       setAuthToken(session?.access_token ?? null);
     });
     return () => {
@@ -562,6 +560,14 @@ export default function Home() {
   const isHumanTurn = Boolean(toActPlayer?.isHuman && !state.isHandOver);
   const revealAllHoleCards = state.stage === "showdown" || state.isHandOver;
   const guestOutOfChips = Boolean(!authUserId && visitorId && isBusted);
+  const displayNickname = (heroName || "").trim() || "小鱼";
+
+  useEffect(() => {
+    if (!guestOutOfChips) return;
+    setShowLoginPanel(true);
+    setAuthMessage("访客筹码已用完，登录可领取今日 200bb。");
+  }, [guestOutOfChips]);
+
   const seatRingClasses = [
     "left-1/2 top-3 -translate-x-1/2",
     "right-6 top-20",
@@ -577,7 +583,7 @@ export default function Home() {
     if (isBusted) return "积分耗尽，无法继续。";
     if (human.stack <= 0 && !state.isHandOver) return "你已全下，等待摊牌结算。";
     if (authUserId) return "已登录 · 每日最多 200bb（不累加，次日重置）";
-    if (visitorId) return "访客模式 · 初始 200bb，用完不补";
+    if (visitorId) return "访客模式 · 200bb";
     const turn = state.isHandOver ? "本局结束" : `行动: ${toActPlayer?.name ?? "-"}`;
     return `第 ${state.handId} 局 · ${state.stage.toUpperCase()} · 底池 ${state.pot}bb · ${turn}`;
   }, [authUserId, visitorId, guestOutOfChips, isBusted, human.stack, state.handId, state.pot, state.stage, state.isHandOver, toActPlayer?.name]);
@@ -710,7 +716,7 @@ ${aiBrief || "（无）"}
     if (Math.random() > 0.18) return;
     tauntCooldownRef.current.push(now);
 
-    const speaker = "东子";
+    const speaker = "幂幂";
     const content = pickTaunt(kind);
     setAutoChatFeed((prev) => [...prev, { id: `taunt_${now}`, speaker, content }]);
     // Speak it as well (still guarded by global TTS cooldown).
@@ -1044,7 +1050,7 @@ ${aiBrief || "（无）"}
   useEffect(() => {
     const el = recordListRef.current;
     if (!el) return;
-    el.scrollTo({ top: 0, behavior: "smooth" });
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [state.actions]);
 
   useEffect(() => {
@@ -1120,6 +1126,7 @@ ${aiBrief || "（无）"}
     try {
       const sb = supabaseBrowser();
       await sb.auth.signOut();
+      setShowAccountPanel(false);
       setAuthMessage("已退出登录");
     } finally {
       setAuthBusy(false);
@@ -1128,12 +1135,18 @@ ${aiBrief || "（无）"}
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-y-auto bg-[#faf9f6] p-2 pb-36 text-[#1A1A1A] sm:min-h-screen sm:h-auto sm:p-4 sm:pb-4 lg:pb-4 lg:p-5">
-      <div className="mb-2 shrink-0 space-y-1.5 rounded-xl bg-white/70 p-2.5 shadow-sm backdrop-blur-sm sm:mb-3 sm:rounded-xl sm:p-3 lg:p-3">
+      <div className="mb-2 shrink-0 rounded-xl bg-white/70 p-2.5 shadow-sm backdrop-blur-sm sm:mb-3 sm:rounded-xl sm:p-3 lg:p-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
             <h1 className="text-lg font-bold tracking-tight text-[#1A1A1A] lg:text-xl">鱼桌</h1>
-            <Badge variant="secondary" className="hidden border-0 bg-[#f1ede6] text-[10px] text-[#d97757] lg:inline-flex">
-              六人桌 · 1/2bb
+            <Badge
+              variant="secondary"
+              className={cn(
+                "w-fit whitespace-nowrap border-0 text-left text-[10px] leading-snug sm:text-xs",
+                guestOutOfChips || isBusted ? "bg-[#ebcecf] text-[#c46687]" : "bg-[#f1ede6] text-[#788d5d]"
+              )}
+            >
+              {statusText}
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -1142,92 +1155,41 @@ ${aiBrief || "（无）"}
                 type="button"
                 size="sm"
                 variant="outline"
-                className="rounded-lg border-[#e9e5dc] bg-white px-2.5 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
-                onClick={() => void logout()}
-                disabled={authBusy}
+                className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                onClick={() => setShowAccountPanel(true)}
               >
-                {authEmail ? `已登录 ${authEmail}` : "已登录"} · 退出
+                {displayNickname}
               </Button>
             ) : (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="rounded-lg border-[#e9e5dc] bg-white px-2.5 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
                 onClick={() => {
                   setShowLoginPanel(true);
                   setAuthMessage("");
                 }}
               >
-                邮箱登录
+                登录
               </Button>
             )}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-1.5 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
-              onClick={() => {
-                window.location.href = "/user";
-              }}
-            >
-              <UserRound className="h-3.5 w-3.5" />
-              用户
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="secondary"
-            className={cn(
-              "w-fit whitespace-normal border-0 text-left text-[10px] leading-snug sm:text-xs",
-              guestOutOfChips || isBusted ? "bg-[#ebcecf] text-[#c46687]" : "bg-[#f1ede6] text-[#788d5d]"
-            )}
-          >
-            {statusText}
-          </Badge>
-        </div>
-        {guestOutOfChips ? (
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 rounded-lg bg-[#d97757] px-3 text-[11px] font-semibold text-white hover:opacity-90"
-              onClick={() => {
-                setShowLoginPanel(true);
-                setAuthMessage("登录后将自动领取今日 200bb。");
-              }}
-            >
-              立即登录领 200bb
-            </Button>
-          </div>
-        ) : null}
-        <div className="flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden">
-          {state.players.map((p, seatIndex) => {
-            const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
-            return (
-              <div
-                key={p.id}
-                className={cn(
-                  "flex min-w-18 shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1",
-                  isToAct ? "bg-[#f1ede6] ring-1 ring-[#d97757]/40" : "bg-white/60"
-                )}
+            {!authUserId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 rounded-lg border-[#e9e5dc] bg-white px-0 text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                onClick={() => {
+                  setShowLoginPanel(true);
+                  setAuthMessage("");
+                }}
+                aria-label="登录"
               >
-                <div
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
-                  style={{ background: getAvatarColor(p.name) }}
-                >{p.name[0]}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[8px] font-medium text-[#788d5d]">{mobileAliasSeatTitle(seatIndex, p)}</div>
-                  <div className="flex items-center gap-1">
-                    <span className="tabular-nums text-[9px] font-semibold text-[#1A1A1A]">{p.stack}</span>
-                    {!p.inHand && <span className="text-[7px] text-[#e4dbcd]">FOLD</span>}
-                  </div>
-                </div>
-                {isToAct && <span className="h-1.5 w-1.5 rounded-full bg-[#d97757] animate-pulse" />}
-              </div>
-            );
-          })}
+                <UserRound className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -1323,7 +1285,7 @@ ${aiBrief || "（无）"}
                 </div>
 
                 <div className="relative mx-auto flex w-full items-center justify-center lg:hidden">
-                  <div className="relative h-[min(58dvh,34rem)] w-[min(92vw,26rem)]">
+                  <div className="relative h-[min(56dvh,33rem)] w-[min(92vw,26rem)]">
                   <div
                     className="absolute inset-0 rounded-[50%]"
                     style={{ background: "linear-gradient(160deg, #623e25, #4a2e1a 40%, #3a2016)" }}
@@ -1348,20 +1310,12 @@ ${aiBrief || "（无）"}
                   </div>
                   {(() => {
                     const ovalSlots = [
-                      "top-[6%] left-1/2 -translate-x-1/2",
-                      "top-[18%] right-[5%]",
-                      "bottom-[36%] right-[5%]",
-                      "bottom-[10%] left-1/2 -translate-x-1/2",
-                      "bottom-[36%] left-[5%]",
-                      "top-[18%] left-[5%]",
-                    ];
-                    const chipSlots = [
-                      "top-[22%] left-1/2 -translate-x-1/2",
-                      "top-[32%] right-[20%]",
-                      "bottom-[42%] right-[20%]",
-                      "bottom-[22%] left-1/2 -translate-x-1/2",
-                      "bottom-[42%] left-[20%]",
-                      "top-[32%] left-[20%]",
+                      "top-[5%] left-1/2 -translate-x-1/2",
+                      "top-[19%] right-[3%]",
+                      "bottom-[35%] right-[3%]",
+                      "bottom-[8%] left-1/2 -translate-x-1/2",
+                      "bottom-[35%] left-[3%]",
+                      "top-[19%] left-[3%]",
                     ];
                     return seats.map((p, idx) => {
                       const seatIndex = seatIndexById.get(p.id) ?? -1;
@@ -1372,7 +1326,7 @@ ${aiBrief || "（无）"}
                       return (
                         <div
                           key={p.id}
-                          className={cn("absolute z-10 w-[4.8rem]", ovalSlots[idx])}
+                          className={cn("absolute z-10 w-[4.6rem]", ovalSlots[idx])}
                         >
                           <div className={cn(
                             "relative overflow-visible rounded-lg border text-[9px] leading-tight shadow-md transition-all",
@@ -1420,11 +1374,11 @@ ${aiBrief || "（无）"}
                   {(() => {
                     const chipSlots = [
                       "top-[24%] left-1/2 -translate-x-1/2",
-                      "top-[33%] right-[26%]",
-                      "bottom-[44%] right-[26%]",
-                      "bottom-[27%] left-1/2 -translate-x-1/2",
-                      "bottom-[44%] left-[26%]",
-                      "top-[33%] left-[26%]",
+                      "top-[30%] right-[24%]",
+                      "bottom-[40%] right-[24%]",
+                      "bottom-[26%] left-1/2 -translate-x-1/2",
+                      "bottom-[40%] left-[24%]",
+                      "top-[30%] left-[24%]",
                     ];
                     return seats.map((p, idx) => {
                       const seatIndex = seatIndexById.get(p.id) ?? -1;
@@ -1434,7 +1388,7 @@ ${aiBrief || "（无）"}
                       return (
                         <div
                           key={`chip-${p.id}`}
-                          className={cn("pointer-events-none absolute z-20", chipSlots[idx])}
+                          className={cn("pointer-events-none absolute z-10", chipSlots[idx])}
                         >
                           <div className="flex items-center gap-1 px-0.5 py-0.5 text-[10px] font-semibold tabular-nums text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                             <span className="relative h-4 w-4">
@@ -1513,14 +1467,14 @@ ${aiBrief || "（无）"}
               </div>
             </CardContent>
           </Card>
-          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-[#e9e5dc] bg-white md:hidden">
+          <div className="h-[18dvh] min-h-[130px] overflow-hidden rounded-xl border border-[#e9e5dc] bg-white md:hidden">
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex items-center justify-between border-b border-[#e9e5dc] px-3 py-1.5">
                 <span className="text-[11px] font-semibold text-[#1A1A1A]">群聊</span>
                 <span className="text-[10px] text-[#e4dbcd]">{[...groupChatFeed, ...autoChatFeed].length}条</span>
               </div>
               <div
-                className="flex-1 overflow-y-auto px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)]"
+                className="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2 py-1.5 pb-2 [touch-action:pan-y]"
                 ref={recordListRef}
               >
                 {[...groupChatFeed, ...autoChatFeed].length === 0 ? (
@@ -1654,7 +1608,7 @@ ${aiBrief || "（无）"}
       {showLoginPanel && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
-            <div className="mb-2 text-sm font-semibold text-[#1A1A1A]">邮箱登录（多设备共享筹码）</div>
+            <div className="mb-2 text-sm font-semibold text-[#1A1A1A]">登录</div>
             <input
               type="email"
               value={emailInput}
@@ -1686,6 +1640,28 @@ ${aiBrief || "（无）"}
               </Button>
             </div>
             {authMessage ? <div className="mt-2 text-xs text-[#d97757]">{authMessage}</div> : null}
+          </div>
+        </div>
+      )}
+      {showAccountPanel && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
+          <div className="w-full max-w-xs rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
+            <div className="mb-1 text-sm font-semibold text-[#1A1A1A]">{displayNickname}</div>
+            <div className="mb-3 text-xs text-[#788d5d]">账号设置</div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-[#e9e5dc] bg-white text-xs"
+                onClick={() => setShowAccountPanel(false)}
+              >
+                关闭
+              </Button>
+              <Button type="button" size="sm" className="text-xs" onClick={() => void logout()} disabled={authBusy}>
+                {authBusy ? "处理中..." : "退出登录"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
