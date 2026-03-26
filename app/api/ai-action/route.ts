@@ -48,13 +48,6 @@ function pickZGeLine(kind: "fold" | "call" | "raise" | "check") {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function normalizeAction(raw: string): "fold" | "call" | "raise" | "check" {
-  if (raw === "fold" || raw === "call" || raw === "raise" || raw === "check") {
-    return raw;
-  }
-  return "call";
-}
-
 export async function POST(req: Request) {
   const { state, ai, heroName, userMemoryHint } = (await req.json()) as RequestBody;
   const fallback = aiDecision(state, ai);
@@ -159,8 +152,10 @@ export async function POST(req: Request) {
     })();
 
     return NextResponse.json({
-      action: normalizeAction(parsed.action ?? fallback.action),
-      amount: Number.isFinite(parsed.amount) ? Math.max(0, Number(parsed.amount)) : fallback.amount,
+      // Make AI actions strong & consistent: action/amount are decided locally (rule-based),
+      // LLM only supplies the table talk text.
+      action: fallback.action,
+      amount: fallback.amount,
       text: nextText,
     });
   } catch {

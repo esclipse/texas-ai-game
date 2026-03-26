@@ -52,7 +52,20 @@ function stableFingerprintSeed() {
 }
 
 export default function Home() {
-  const [initialHand] = useState(() => createNewHand(1, createDefaultPlayers()));
+  const [initialHand] = useState(() => {
+    const basePlayers = createDefaultPlayers();
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem("ai-game:chipBalance") : null;
+      const v = raw ? Number(raw) : NaN;
+      const bal = Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+      if (bal != null) {
+        return createNewHand(1, basePlayers.map((p) => (p.id === "human" ? { ...p, stack: bal } : p)));
+      }
+    } catch {
+      // ignore
+    }
+    return createNewHand(1, basePlayers);
+  });
   const [handId, setHandId] = useState(1);
   const [state, setState] = useState(initialHand);
   const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
@@ -368,13 +381,27 @@ export default function Home() {
           body: JSON.stringify({ fingerprint: fp }),
         });
         const data = (await resp.json()) as { visitorId?: string; chipBalance?: number };
-        if (!resp.ok || !data.visitorId || typeof data.chipBalance !== "number") return;
+        if (!resp.ok || !data.visitorId || typeof data.chipBalance !== "number") {
+          // Fallback: keep local chip balance if supabase isn't configured/available.
+          try {
+            const rawBal = window.localStorage.getItem("ai-game:chipBalance");
+            const v = rawBal ? Number(rawBal) : NaN;
+            if (Number.isFinite(v) && v > 0 && !cancelled) setVisitorBalance(Math.floor(v));
+          } catch {}
+          return;
+        }
         if (cancelled) return;
         setVisitorId(data.visitorId);
         setVisitorBalance(data.chipBalance);
         window.localStorage.setItem("ai-game:visitorId", data.visitorId);
+        window.localStorage.setItem("ai-game:chipBalance", String(Math.max(0, Math.floor(data.chipBalance))));
       } catch {
-        // ignore
+        // Fallback: local balance
+        try {
+          const rawBal = window.localStorage.getItem("ai-game:chipBalance");
+          const v = rawBal ? Number(rawBal) : NaN;
+          if (Number.isFinite(v) && v > 0 && !cancelled) setVisitorBalance(Math.floor(v));
+        } catch {}
       }
     };
     void run();
@@ -441,6 +468,9 @@ export default function Home() {
     const humanNow = state.players.find((p) => p.id === "human");
     if (!humanNow) return;
     const bal = Math.max(0, Math.floor(humanNow.stack));
+    try {
+      window.localStorage.setItem("ai-game:chipBalance", String(bal));
+    } catch {}
     if (lastSyncedBalanceRef.current === bal) return;
 
     if (balanceSyncTimerRef.current) window.clearTimeout(balanceSyncTimerRef.current);
@@ -1011,6 +1041,8 @@ ${aiBrief || "（无）"}
 
   const handleHumanAction = async (action: ActionType, raiseBy = 0, text?: string) => {
     if (isResolving) return;
+    // Ensure audio is unlocked on mobile within the click gesture.
+    void unlockAudio();
     const current = stateRef.current;
     if (current.isHandOver) return;
     const actor = current.players[current.toActIndex];
@@ -1167,10 +1199,10 @@ ${aiBrief || "（无）"}
                       })}
 
                       <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
-                        <div className="flex items-center gap-2 rounded-full bg-white/90 px-5 py-2 shadow-lg">
+                        <div className="flex items-center gap-2 ">
                           <Coins className="h-4 w-4 text-[#d97757]" aria-hidden />
                           <span className="text-sm font-bold tracking-wide text-[#1A1A1A]">
-                            底池 <span className="tabular-nums text-[#d97757]">{state.pot}</span>bb
+                            底池 <span className="tabular-nums text-[#d97757] mt-1">{state.pot}</span> bb
                           </span>
                         </div>
                         <div className="flex gap-2">
@@ -1195,10 +1227,10 @@ ${aiBrief || "（无）"}
                     aria-hidden
                   />
                   <div className="pointer-events-none absolute left-1/2 top-[45%] z-20 w-[58%] max-w-56 -translate-x-1/2 -translate-y-1/2 px-2 py-1.5 text-center">
-                    <div className="mb-1.5 flex items-center justify-center gap-1.5 rounded-full bg-white/90 px-3 py-1 shadow-md">
+                    <div className="mb-1.5 flex items-center justify-center gap-1.5 rounded-full">
                       <Coins className="h-3 w-3 text-[#d97757]" aria-hidden />
                       <span className="text-[11px] font-bold text-[#1A1A1A]">
-                        底池 <span className="tabular-nums text-[#d97757]">{state.pot}</span>bb
+                        底池 <span className="tabular-nums text-[#d97757] mt-1">{state.pot}</span> bb
                       </span>
                     </div>
                     <div className="flex justify-center gap-0.5">
@@ -1380,7 +1412,10 @@ ${aiBrief || "（无）"}
                 <span className="text-[11px] font-semibold text-[#1A1A1A]">群聊</span>
                 <span className="text-[10px] text-[#e4dbcd]">{[...groupChatFeed, ...autoChatFeed].length}条</span>
               </div>
-              <div className="flex-1 overflow-y-auto px-2 py-1.5" ref={recordListRef}>
+              <div
+                className="flex-1 overflow-y-auto px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)]"
+                ref={recordListRef}
+              >
                 {[...groupChatFeed, ...autoChatFeed].length === 0 ? (
                   <div className="py-4 text-center text-[10px] text-[#e4dbcd]">暂无消息</div>
                 ) : (

@@ -869,50 +869,79 @@ function preflopHandScore(cards: string[] = []): number {
 
 export function aiDecision(state: HandState, ai: Player): { action: ActionType; amount: number; text: string } {
   const inferred = detectStyleByRecentActions(state.actions);
-  const pressure = state.stage === "preflop" && inferred === "nit";
-  const bluff = state.stage !== "preflop" && inferred === "gto" && ai.style === "tricky";
   const toCall = Math.max(0, state.currentBet - ai.currentBet);
   const minRaise = Math.max(2, state.lastRaiseSize);
-  const investRatio = ai.stack > 0 ? toCall / ai.stack : 1;
   const handScore = preflopHandScore(state.holeCards[ai.id]);
-  const shortStack = ai.stack <= Math.max(8, state.currentBet * 2);
 
-  let action: ActionType = "call";
-  let amount = minRaise;
+  // Stronger AI (intentionally): use full information from state to reduce spew.
+  // We DO NOT reveal cards in text (server also blocks that).
+  const futureBoard = (() => {
+    if (state.board.length >= 5) return state.board.slice(0, 5);
+    const need = 5 - state.board.length;
+    return [...state.board, ...state.deck.slice(0, need)];
+  })();
 
-  if (toCall > 0 && !shortStack) {
-    // Facing an all-in or huge jam should trigger much tighter defense.
-    if (investRatio >= 0.85) {
-      const canContinue = handScore >= 34 || Math.random() > 0.82;
-      action = canContinue ? "call" : "fold";
+  type SolverHand = { name: string; descr: string; rank: number };
+  type SolverApi = { solve: (cards: string[]) => SolverHand; winners: (hands: SolverHand[]) => SolverHand[] };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const solver = require("pokersolver") as { Hand: SolverApi };
+  const toSolverCard = (card: string) => `${card[0]}${card[1].toLowerCase()}`;
+
+  const canSeeRunout = futureBoard.length === 5;
+  const aiIsAheadAtShowdown = (() => {
+    if (!canSeeRunout) return false;
+    const contenders = state.players.filter((p) => p.inHand);
+    const hands: Array<{ id: string; hand: SolverHand }> = [];
+    for (const p of contenders) {
+      const hole = state.holeCards[p.id] ?? [];
+      const seven = [...hole, ...futureBoard].map(toSolverCard);
+      if (seven.length !== 7) continue;
+      hands.push({ id: p.id, hand: solver.Hand.solve(seven) });
+    }
+    const solved = hands.map((x) => x.hand);
+    if (!solved.length) return false;
+    const winners = solver.Hand.winners(solved);
+    return hands.some((x) => x.id === ai.id && winners.includes(x.hand));
+  })();
+
+  // Betting decision: be tight when behind, press when ahead.
+  // Keep behavior somewhat "human" by mixing small randomness and respecting raise caps.
+  let action: ActionType = toCall > 0 ? "call" : "check";
+  let amount = 0;
+
+  const raiseCapReached = state.raiseCountThisRound >= 3;
+  const pot = Math.max(0, state.pot);
+  const potRaise = Math.max(minRaise, Math.min(12, Math.floor(pot * 0.35)));
+
+  if (raiseCapReached) {
+    action = toCall > 0 ? "call" : "check";
+    amount = 0;
+  } else if (aiIsAheadAtShowdown) {
+    // When ahead, raise more often (pressure) but avoid always raising to look less robotic.
+    const raiseChance = state.stage === "preflop" ? 0.65 : 0.78;
+    if (Math.random() < raiseChance && ai.stack > toCall + minRaise) {
+      action = "raise";
+      amount = potRaise;
+    } else {
+      action = toCall > 0 ? "call" : "check";
       amount = 0;
-    } else if (investRatio >= 0.55) {
-      const canContinue = handScore >= 28 || Math.random() > 0.72;
-      action = canContinue ? "call" : "fold";
+    }
+  } else {
+    // When behind, fold more; allow occasional defense with good preflop score / cheap price.
+    const cheap = toCall <= Math.max(2, Math.floor(pot * 0.15));
+    const canDefend = cheap || handScore >= 30;
+    if (toCall > 0) {
+      action = canDefend && Math.random() < 0.22 ? "call" : "fold";
+      amount = 0;
+    } else {
+      action = "check";
       amount = 0;
     }
   }
 
-  if (state.raiseCountThisRound >= 3) {
-    action = toCall > 0 ? "call" : "check";
-    amount = 0;
-  } else if (action !== "fold" && toCall > ai.stack * 0.35 && ai.style !== "lag") {
-    action = Math.random() > 0.5 ? "fold" : "call";
-    amount = 0;
-  } else if (action !== "fold" && (ai.style === "lag" || pressure || bluff)) {
-    action = "raise";
-    amount = Math.max(minRaise, Math.min(12, Math.floor(state.pot * 0.2)));
-  } else if (action !== "fold" && ai.style === "nit" && state.stage !== "preflop") {
-    action = Math.random() > 0.6 ? "fold" : "check";
-    amount = 0;
-  } else if (action !== "fold" && ai.style === "tricky") {
-    action = toCall > 0 ? (Math.random() > 0.7 ? "fold" : "call") : Math.random() > 0.55 ? "check" : "raise";
-    amount = action === "raise" ? minRaise : 0;
-  }
-
   return {
     action,
-    amount,
+    amount: action === "raise" ? amount || minRaise : 0,
     text: generateEmotionLine(ai, state.stage, inferred, state.actions),
   };
 }
