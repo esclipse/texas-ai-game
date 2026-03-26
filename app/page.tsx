@@ -565,7 +565,7 @@ export default function Home() {
   useEffect(() => {
     if (!guestOutOfChips) return;
     setShowLoginPanel(true);
-    setAuthMessage("访客筹码已用完，登录可领取今日 200bb。");
+    setAuthMessage("登录可领取今日 200bb");
   }, [guestOutOfChips]);
 
   const seatRingClasses = [
@@ -579,7 +579,7 @@ export default function Home() {
 
   const statusText = useMemo(() => {
     if (!authUserId && !visitorId) return "请先登录或进入访客模式开始对局";
-    if (guestOutOfChips) return "访客筹码已用完，登录可领取今日免费 200bb";
+    if (guestOutOfChips) return "登录可领取今日免费 200bb";
     if (isBusted) return "积分耗尽，无法继续。";
     if (human.stack <= 0 && !state.isHandOver) return "你已全下，等待摊牌结算。";
     if (authUserId) return "已登录 · 每日最多 200bb（不累加，次日重置）";
@@ -622,7 +622,8 @@ ${aiBrief || "（无）"}
   }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players]);
 
   const groupChatFeed = useMemo(() => {
-    const items = state.actions
+    const items = [...state.actions]
+      .reverse()
       .filter((a) => a.actor !== "系统" && Boolean(a.text))
       .slice(-40)
       .map((a, idx) => ({
@@ -1376,7 +1377,7 @@ ${aiBrief || "（无）"}
                       "top-[24%] left-1/2 -translate-x-1/2",
                       "top-[30%] right-[24%]",
                       "bottom-[40%] right-[24%]",
-                      "bottom-[26%] left-1/2 -translate-x-1/2",
+                      "bottom-[30%] left-1/2 -translate-x-1/2",
                       "bottom-[40%] left-[24%]",
                       "top-[30%] left-[24%]",
                     ];
