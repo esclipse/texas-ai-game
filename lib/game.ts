@@ -50,6 +50,19 @@ export type TableAction = {
   text?: string;
 };
 
+// Minimal human tendencies summary (serialized on state; safe, no secrets)
+export type HumanProfile = {
+  handsSeen: number;
+  preflopRaises: number;
+  preflopCalls: number;
+  preflopFolds: number;
+  stealsLatePos: number;
+  allIns: number;
+  postflopBets: number;
+  postflopCalls: number;
+  lastUpdatedAt: number;
+};
+
 export type HandState = {
   handId: number;
   stage: Stage;
@@ -68,6 +81,7 @@ export type HandState = {
   isHandOver: boolean;
   actions: TableAction[];
   players: Player[];
+  humanProfile?: HumanProfile;
 };
 
 const RANKS = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
@@ -873,6 +887,12 @@ export function aiDecision(state: HandState, ai: Player): { action: ActionType; 
   const minRaise = Math.max(2, state.lastRaiseSize);
   const handScore = preflopHandScore(state.holeCards[ai.id]);
 
+  const profile = state.humanProfile;
+  const preflopHands = profile ? Math.max(1, profile.preflopRaises + profile.preflopCalls + profile.preflopFolds) : 1;
+  const humanRaiseRate = profile ? profile.preflopRaises / preflopHands : 0.28;
+  const humanAllInRate = profile ? profile.allIns / preflopHands : 0.03;
+  const humanCallRate = profile ? profile.preflopCalls / preflopHands : 0.32;
+
   // Stronger AI (intentionally): use full information from state to reduce spew.
   // We DO NOT reveal cards in text (server also blocks that).
   const futureBoard = (() => {
@@ -929,13 +949,26 @@ export function aiDecision(state: HandState, ai: Player): { action: ActionType; 
   } else {
     // When behind, fold more; allow occasional defense with good preflop score / cheap price.
     const cheap = toCall <= Math.max(2, Math.floor(pot * 0.15));
-    const canDefend = cheap || handScore >= 30;
+    // Exploit: if human is maniac/all-in heavy, defend wider; if human is calling-station, bluff less.
+    const widenDefense = humanRaiseRate > 0.42 || humanAllInRate > 0.08;
+    const defendScore = widenDefense ? 24 : 30;
+    const canDefend = cheap || handScore >= defendScore;
     if (toCall > 0) {
-      action = canDefend && Math.random() < 0.22 ? "call" : "fold";
+      const baseCall = widenDefense ? 0.36 : 0.22;
+      action = canDefend && Math.random() < baseCall ? "call" : "fold";
       amount = 0;
     } else {
       action = "check";
       amount = 0;
+    }
+  }
+
+  // Extra exploit layer: punish calling-station by value-raising more often when cheap.
+  const isCallingStation = humanCallRate > 0.48 && humanRaiseRate < 0.35;
+  if (!raiseCapReached && !aiIsAheadAtShowdown && isCallingStation && toCall === 0 && state.stage !== "preflop") {
+    if (Math.random() < 0.22 && ai.stack > minRaise) {
+      action = "raise";
+      amount = Math.max(minRaise, Math.min(10, Math.floor(pot * 0.45)));
     }
   }
 

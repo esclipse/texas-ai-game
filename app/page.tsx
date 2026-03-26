@@ -18,6 +18,7 @@ import {
 } from "@/lib/game";
 import { loadAiMemories } from "@/lib/ai-memory";
 import { userMemorySummary } from "@/lib/user-memory";
+import { loadHumanProfile, updateHumanProfile } from "@/lib/human-profile";
 import { cn } from "@/lib/utils";
 import { AiRecordChat } from "@/components/ai-record-chat";
 
@@ -88,7 +89,9 @@ export default function Home() {
   const [autoChatFeed, setAutoChatFeed] = useState<Array<{ id: string; speaker: string; content: string }>>([]);
   const lastAutoTriggerRef = useRef("");
   const autoCooldownRef = useRef<number[]>([]);
+  const tauntCooldownRef = useRef<number[]>([]);
   const stateRef = useRef(state);
+  const humanProfileRef = useRef(loadHumanProfile(null));
   const lastSyncedBalanceRef = useRef<number | null>(null);
   const balanceSyncTimerRef = useRef<number | null>(null);
   const nextStreetRef = useRef<() => Promise<void>>(async () => {});
@@ -582,6 +585,32 @@ ${aiBrief || "（无）"}
     return items;
   }, [state.actions, state.handId]);
 
+  const pickTaunt = useCallback(
+    (kind: "steal" | "maniac" | "station") => {
+      const name = heroName?.trim() || "你";
+      const poolByKind: Record<typeof kind, string[]> = {
+        steal: [
+          `${name}又想偷盲？我盯着你呢。`,
+          `别装了，${name}你这位置又想拿走底池？`,
+          `${name}别想白拿，这手我给你压力。`,
+        ],
+        maniac: [
+          `${name}别上头，冲太狠容易被收掉。`,
+          `又想硬怼？行，${name}我接着。`,
+          `${name}你这节奏太急了，小心被反打。`,
+        ],
+        station: [
+          `${name}你又想一路跟？这钱我可不白送你。`,
+          `你这手要是想跟到底，${name}得先想清楚。`,
+          `${name}别老当跟注机器，挑一手硬的再跟。`,
+        ],
+      };
+      const arr = poolByKind[kind];
+      return arr[Math.floor(Math.random() * arr.length)];
+    },
+    [heroName]
+  );
+
   const parseGroupSpeaker = (text: string) => {
     const trimmed = text.trim();
     const m = trimmed.match(/^【([^】]{1,12})】\s*([\s\S]*)$/);
@@ -608,67 +637,43 @@ ${aiBrief || "（无）"}
   };
 
   useEffect(() => {
-    // Trigger one extra AI line when it's human's decision point.
-    const last = groupChatFeed[groupChatFeed.length - 1];
-    if (!last) return;
-    // Only speak at human-vs-AI decision moments (not idle chatter).
-    if (!isHumanTurn) return;
+    // Optional taunt at human decision point when profile is clear.
+    if (!isHumanTurn || state.isHandOver) return;
     const seatActor = state.players[state.toActIndex];
-    if (!seatActor || !seatActor.isHuman) return;
-    // Last visible speech should be from AI (recent pressure / action context).
-    if (last.speaker === "你") return;
+    if (!seatActor?.isHuman) return;
 
-    const triggerKey = last.id;
-    if (lastAutoTriggerRef.current === triggerKey) return;
+    const prof = state.humanProfile;
+    if (!prof) return;
+    const preflopHands = Math.max(1, (prof.preflopRaises ?? 0) + (prof.preflopCalls ?? 0) + (prof.preflopFolds ?? 0));
+    if (preflopHands < 10) return; // need enough signal
 
-    // Cooldown / rate-limit: at most 1 auto line per 25s, and at least 10s apart.
+    const raiseRate = (prof.preflopRaises ?? 0) / preflopHands;
+    const callRate = (prof.preflopCalls ?? 0) / preflopHands;
+    const allInRate = (prof.allIns ?? 0) / preflopHands;
+    const stealRate = (prof.stealsLatePos ?? 0) / Math.max(1, prof.preflopRaises ?? 0);
+
+    const isManiac = raiseRate > 0.42 || allInRate > 0.08;
+    const isStation = callRate > 0.48 && raiseRate < 0.35;
+    const isSteal = stealRate > 0.35 && raiseRate > 0.25;
+    const kind: "steal" | "maniac" | "station" | null = isManiac ? "maniac" : isSteal ? "steal" : isStation ? "station" : null;
+    if (!kind) return;
+
     const now = Date.now();
-    autoCooldownRef.current = autoCooldownRef.current.filter((t) => now - t < 25_000);
-    const lastAt = autoCooldownRef.current[autoCooldownRef.current.length - 1] ?? 0;
-    if (now - lastAt < 10_000) return;
-    if (autoCooldownRef.current.length >= 1) return;
+    tauntCooldownRef.current = tauntCooldownRef.current.filter((t) => now - t < 45_000);
+    const lastAt = tauntCooldownRef.current[tauntCooldownRef.current.length - 1] ?? 0;
+    if (now - lastAt < 25_000) return;
+    if (tauntCooldownRef.current.length >= 1) return;
 
-    // Probability gate at decision points.
-    if (Math.random() > 0.45) {
-      lastAutoTriggerRef.current = triggerKey;
-      return;
-    }
+    // low frequency
+    if (Math.random() > 0.18) return;
+    tauntCooldownRef.current.push(now);
 
-    lastAutoTriggerRef.current = triggerKey;
-    autoCooldownRef.current.push(now);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 9000);
-    const prompt = `现在轮到主角行动。刚才【${last.speaker}】说：“${last.content}”。请让一位AI对主角说一句临场建议（可简短点名主角），给清晰方向：弃/跟/加其一，不要AI互相闲聊。`;
-
-    void fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [
-          {
-            id: `u_${now}`,
-            role: "user",
-            parts: [{ type: "text", text: prompt }],
-          },
-        ],
-        gameContext: recordChatContext,
-      }),
-      signal: controller.signal,
-    })
-      .then((r) => (r.ok ? extractUiSseText(r) : ""))
-      .then((text) => {
-        if (!text) return;
-        const { speaker, content } = parseGroupSpeaker(text);
-        setAutoChatFeed((prev) => [
-          ...prev,
-          { id: `auto_${now}`, speaker, content: content || text },
-        ]);
-      })
-      .catch(() => {})
-      .finally(() => clearTimeout(timer));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupChatFeed.length, recordChatContext, isHumanTurn, state.players, state.toActIndex]);
+    const speaker = "东子";
+    const content = pickTaunt(kind);
+    setAutoChatFeed((prev) => [...prev, { id: `taunt_${now}`, speaker, content }]);
+    // Speak it as well (still guarded by global TTS cooldown).
+    void speak(speaker, null, content);
+  }, [isHumanTurn, state.isHandOver, state.players, state.toActIndex, state.humanProfile, pickTaunt, speak, heroName]);
 
   const lastActionByActor = useMemo(() => {
     const map = new Map<string, string>();
@@ -755,8 +760,9 @@ ${aiBrief || "（无）"}
 
 
   const syncState = (next: typeof state) => {
-    stateRef.current = next;
-    setState(next);
+    const merged = { ...next, humanProfile: humanProfileRef.current };
+    stateRef.current = merged;
+    setState(merged);
   };
 
   useEffect(() => {
@@ -1047,6 +1053,34 @@ ${aiBrief || "（无）"}
     if (current.isHandOver) return;
     const actor = current.players[current.toActIndex];
     if (!actor || !actor.isHuman) return;
+
+    // Update exploit profile (minimal, local only).
+    try {
+      const stage = current.stage;
+      const toCall = Math.max(0, current.currentBet - actor.currentBet);
+      const heroIdx = current.players.findIndex((p) => p.id === actor.id);
+      const offsetFromBb = (heroIdx - current.bbIndex + current.players.length) % current.players.length;
+      const latePos = stage === "preflop" && (offsetFromBb === 3 || offsetFromBb === 4 || offsetFromBb === 5); // CO/BTN/SB-ish
+      const isAllIn = action === "raise" && raiseBy >= Math.max(0, actor.stack - toCall);
+
+      const p = loadHumanProfile(visitorId);
+      const patch: Record<string, number> = {};
+      if (stage === "preflop") {
+        if (action === "raise") patch.preflopRaises = (p.preflopRaises ?? 0) + 1;
+        if (action === "call") patch.preflopCalls = (p.preflopCalls ?? 0) + 1;
+        if (action === "fold") patch.preflopFolds = (p.preflopFolds ?? 0) + 1;
+        if (latePos && action === "raise" && toCall === 0) patch.stealsLatePos = (p.stealsLatePos ?? 0) + 1;
+        if (isAllIn) patch.allIns = (p.allIns ?? 0) + 1;
+      } else {
+        if (action === "raise") patch.postflopBets = (p.postflopBets ?? 0) + 1;
+        if (action === "call") patch.postflopCalls = (p.postflopCalls ?? 0) + 1;
+      }
+      patch.handsSeen = (p.handsSeen ?? 0) + 0; // keep for future; no-op
+      humanProfileRef.current = updateHumanProfile(visitorId, patch);
+    } catch {
+      // ignore
+    }
+
     setIsResolving(true);
     try {
       const acted = applyActionToState(current, actor.id, action, raiseBy, text);
