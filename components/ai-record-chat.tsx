@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { updateUserMemoryFromText } from "@/lib/user-memory";
 
 function parseGroupSpeaker(text: string) {
   const trimmed = text.trim();
@@ -73,6 +74,7 @@ export function AiRecordChat({
     const text = input.trim();
     if (!text) return;
     if (isBusy) return;
+    updateUserMemoryFromText(text);
     setInput("");
     await sendMessage({ text });
   };
@@ -194,6 +196,7 @@ export function AiRecordChat({
             void send();
           }}
           disabled={isBusy}
+          placeholder="回车发送；Shift+Enter 换行；支持 @Z哥 / @大炮 指定某个 AI 回复…"
         />
       </div>
     </div>

@@ -9,6 +9,8 @@ const { providersForAiAction } = getLlmConfig();
 type RequestBody = {
   state: HandState;
   ai: Player;
+  heroName?: string;
+  userMemoryHint?: string;
 };
 
 function pickZGeLine(kind: "fold" | "call" | "raise" | "check") {
@@ -54,10 +56,20 @@ function normalizeAction(raw: string): "fold" | "call" | "raise" | "check" {
 }
 
 export async function POST(req: Request) {
-  const { state, ai } = (await req.json()) as RequestBody;
+  const { state, ai, heroName, userMemoryHint } = (await req.json()) as RequestBody;
   const fallback = aiDecision(state, ai);
 
   try {
+    const isBadText = (raw: string) => {
+      const t = (raw ?? "").trim();
+      if (!t) return true;
+      // Block "abstract meme" patterns that break realism.
+      if (/焊|铁水|回浇|键盘|鼠标|xx锅|锅|汤|勺|捞|泡面汤|烫手|直播|梗图/.test(t)) return true;
+      // Do not leak exact hole-card notations, e.g. A4s / JTs / AKo / AsKd.
+      if (/\b(?:[2-9TJQKA]{2}(?:s|o)?|[2-9TJQKA][shdc][2-9TJQKA][shdc])\b/i.test(t)) return true;
+      return false;
+    };
+
     const recent = state.actions.filter((a) => a.actor !== "系统").slice(0, 8);
     const previous = recent[0];
     const historyText = recent
@@ -70,6 +82,8 @@ export async function POST(req: Request) {
       .join(" | ");
     const prompt = `
 你是德州扑克玩家 "${ai.name}"。
+主角（我）的昵称：${typeof heroName === "string" && heroName.trim() ? heroName.trim() : "（未设置）"}。
+用户偏好记忆（精简）：${typeof userMemoryHint === "string" && userMemoryHint.trim() ? userMemoryHint.trim() : "（无）"}。
 你的风格: ${ai.style}; 情绪: ${ai.emotion}; 当前阶段: ${state.stage}; 底池: ${state.pot}bb; 当前需跟注: ${Math.max(
       0,
       state.currentBet - ai.currentBet
@@ -82,11 +96,16 @@ export async function POST(req: Request) {
 {"action":"fold|call|raise|check","amount":number,"text":"一句中文互动话术"}
 要求: 必须遵守当前轮次规则，若需跟注过大可弃牌。amount 仅在 raise 时表示加注增量，且应>=最小加注增量。
 互动要求:
-1) text 必须像真人牌桌接话，口语化，1~2句，12~32字；
+1) text 必须像真人牌桌接话，口语化，1~2句，18~60字（允许更自然一点）；
 2) 至少有一处“对上一位玩家动作/上一句聊天”的回应（可点名）；
 3) 禁止复读模板词：不要出现“判断你偏xx风格”“按计划执行”“这节奏挺工整”等机器句；
 4) 可以有轻微情绪和个性，但不要脏话、不要客服语气。
 5) 若长期记忆里有对某个玩家的印象，可自然带入一句，但不要生硬背诵。
+6) 禁止“抽象黑话/网络梗/无关比喻”：不要出现键盘/焊死/铁水/回浇/xx锅等，也不要像在讲段子。
+7) 只围绕当前牌局说话：不要扯游戏、直播、键盘、梗图、上网冲浪等无关内容。
+8) 可以偶尔用主角昵称叫我一下（别每句都叫），更像在陪我打牌。
+9) 严禁说出任何人的具体手牌记号（如A4s/JTs/AKo/AsKd等）；只能说“偏强/偏弱/可跟/可弃”。
+10) 优先和主角互动，不要点评其他AI之间的闲聊。
 `.trim();
 
     const { resp } = await postChatCompletionsWithFallback({
@@ -100,7 +119,8 @@ export async function POST(req: Request) {
             role: "system",
             content: `${ai.systemPrompt || "你是一个会打牌且会互动的 AI 角色。"}
 你在一个6人德州牌桌聊天里。你每次发言都要“接上一句”或“接上一个动作”，像真人临场反应。
-风格要求：短句、口语、有情绪起伏；少用书面语；避免重复固定句式。`,
+风格要求：短句、口语、有情绪起伏；少用书面语；避免重复固定句式。
+允许给出简单建议（弃/跟/加/慢打），用大白话，不要长篇教学。`,
           },
           { role: "user", content: prompt },
         ],
@@ -131,15 +151,17 @@ export async function POST(req: Request) {
       text?: string;
     };
 
+    const nextText = (() => {
+      const candidate = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      if (candidate && !isBadText(candidate)) return candidate;
+      // Hard fallback to local line if model output is bad.
+      return ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text;
+    })();
+
     return NextResponse.json({
       action: normalizeAction(parsed.action ?? fallback.action),
       amount: Number.isFinite(parsed.amount) ? Math.max(0, Number(parsed.amount)) : fallback.amount,
-      text:
-        typeof parsed.text === "string"
-          ? parsed.text
-          : ai.name === "Z哥"
-            ? pickZGeLine(fallback.action)
-            : fallback.text,
+      text: nextText,
     });
   } catch {
     return NextResponse.json({ ...fallback, text: ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text });

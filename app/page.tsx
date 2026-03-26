@@ -16,7 +16,8 @@ import {
   type Player,
   type PublicRole,
 } from "@/lib/game";
-import { appendAiMemory, loadAiMemories } from "@/lib/ai-memory";
+import { loadAiMemories } from "@/lib/ai-memory";
+import { userMemorySummary } from "@/lib/user-memory";
 import { cn } from "@/lib/utils";
 import { AiRecordChat } from "@/components/ai-record-chat";
 
@@ -57,7 +58,16 @@ export default function Home() {
   const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
+  const [heroName, setHeroName] = useState<string>("");
+  const [userMemoryHint, setUserMemoryHint] = useState<string>("");
   const [isResolving, setIsResolving] = useState(false);
+  // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [voiceFollowAction] = useState(true);
+  const [voicePlaying, setVoicePlaying] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceLevel] = useState<"key" | "all">("key");
+  const [sfxEnabled] = useState(true);
   const [raiseMode, setRaiseMode] = useState<"min" | "2x" | "3x" | "allin">("min");
   const [showRaiseOptions, setShowRaiseOptions] = useState(false);
   const [winFx, setWinFx] = useState<{ text: string; winners: string[] } | null>(null);
@@ -72,6 +82,275 @@ export default function Home() {
   const lastProcessedActionRef = useRef("");
   const recordListRef = useRef<HTMLDivElement | null>(null);
   const appliedPublicRolesRef = useRef(false);
+  const voiceAbortRef = useRef<AbortController | null>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceUnlockedRef = useRef(false);
+  const voiceCtxRef = useRef<AudioContext | null>(null);
+  const voiceSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const voiceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const voiceQueueDepthRef = useRef(0);
+  const lastTtsAtRef = useRef(0);
+  const lastTtsByNameRef = useRef<Record<string, number>>({});
+  const lastSfxKeyRef = useRef("");
+
+  const unlockAudio = useCallback(async () => {
+    if (voiceUnlockedRef.current) return true;
+    try {
+      const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) as
+        | typeof AudioContext
+        | undefined;
+      if (!Ctx) {
+        voiceUnlockedRef.current = true;
+        return true;
+      }
+      const ctx = voiceCtxRef.current ?? new Ctx();
+      voiceCtxRef.current = ctx;
+      if (ctx.state !== "running") await ctx.resume();
+
+      // Tiny silent buffer to "prime" playback within a user gesture.
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+
+      voiceUnlockedRef.current = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Auto-unlock audio on first user gesture (required by browsers).
+  useEffect(() => {
+    const onFirstGesture = () => {
+      void unlockAudio();
+      // First-time nickname collection (stored).
+      try {
+        const key = "ai-game:heroName";
+        const existing = window.localStorage.getItem(key);
+        if (!existing || !existing.trim()) {
+          const picked = window.prompt("给自己起个昵称（对局里AI会这么叫你）", "") ?? "";
+          const trimmed = picked.trim().slice(0, 12);
+          if (trimmed) window.localStorage.setItem(key, trimmed);
+          setHeroName(trimmed);
+        } else {
+          setHeroName(existing.trim().slice(0, 12));
+        }
+      } catch {
+        // ignore
+      }
+      window.removeEventListener("pointerdown", onFirstGesture);
+      window.removeEventListener("keydown", onFirstGesture);
+      window.removeEventListener("touchstart", onFirstGesture);
+    };
+    window.addEventListener("pointerdown", onFirstGesture, { passive: true });
+    window.addEventListener("touchstart", onFirstGesture, { passive: true });
+    window.addEventListener("keydown", onFirstGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onFirstGesture);
+      window.removeEventListener("keydown", onFirstGesture);
+      window.removeEventListener("touchstart", onFirstGesture);
+    };
+  }, [unlockAudio]);
+
+  useEffect(() => {
+    setUserMemoryHint(userMemorySummary(220));
+    const onFocus = () => setUserMemoryHint(userMemorySummary(220));
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  const playSfx = useCallback(
+    (kind: "bet" | "check" | "fold" | "deal" | "win") => {
+      if (!sfxEnabled) return;
+      const ctx = voiceCtxRef.current;
+      if (!voiceUnlockedRef.current || !ctx || ctx.state !== "running") return;
+      try {
+        const now = ctx.currentTime;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.connect(ctx.destination);
+
+        if (kind === "bet") {
+          // short chip click
+          const o = ctx.createOscillator();
+          o.type = "square";
+          o.frequency.setValueAtTime(900, now);
+          gain.gain.exponentialRampToValueAtTime(0.12, now + 0.005);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+          o.connect(gain);
+          o.start(now);
+          o.stop(now + 0.065);
+          return;
+        }
+        if (kind === "check") {
+          const o = ctx.createOscillator();
+          o.type = "sine";
+          o.frequency.setValueAtTime(620, now);
+          gain.gain.exponentialRampToValueAtTime(0.08, now + 0.004);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+          o.connect(gain);
+          o.start(now);
+          o.stop(now + 0.055);
+          return;
+        }
+        if (kind === "fold") {
+          const o = ctx.createOscillator();
+          o.type = "triangle";
+          o.frequency.setValueAtTime(360, now);
+          o.frequency.exponentialRampToValueAtTime(180, now + 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.09, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+          o.connect(gain);
+          o.start(now);
+          o.stop(now + 0.15);
+          return;
+        }
+        if (kind === "deal") {
+          // quick whoosh noise
+          const bufferSize = 22050 * 0.08;
+          const noiseBuffer = ctx.createBuffer(1, bufferSize, 22050);
+          const data = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+          const src = ctx.createBufferSource();
+          src.buffer = noiseBuffer;
+          gain.gain.exponentialRampToValueAtTime(0.09, now + 0.005);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+          src.connect(gain);
+          src.start(now);
+          src.stop(now + 0.095);
+          return;
+        }
+        // win: two-tone chime
+        const o1 = ctx.createOscillator();
+        const o2 = ctx.createOscillator();
+        o1.type = "sine";
+        o2.type = "sine";
+        o1.frequency.setValueAtTime(523.25, now);
+        o2.frequency.setValueAtTime(659.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        o1.connect(gain);
+        o2.connect(gain);
+        o1.start(now);
+        o2.start(now);
+        o1.stop(now + 0.23);
+        o2.stop(now + 0.23);
+      } catch {
+        // ignore
+      }
+    },
+    [sfxEnabled]
+  );
+
+  const shouldSpeak = useCallback(
+    (speakerName: string, actionType: ActionType, amount: number, stage: string, text: string) => {
+      if (!voiceEnabled) return false;
+      const t = (text ?? "").trim();
+      if (!t) return false;
+
+      // Global + per-speaker cooldown to reduce cost.
+      const now = Date.now();
+      const globalCooldownMs = voiceLevel === "all" ? 3500 : 9000;
+      const perSpeakerCooldownMs = voiceLevel === "all" ? 8000 : 16000;
+      if (now - lastTtsAtRef.current < globalCooldownMs) return false;
+      const lastBy = lastTtsByNameRef.current[speakerName] ?? 0;
+      if (now - lastBy < perSpeakerCooldownMs) return false;
+
+      if (voiceLevel === "all") return true;
+
+      // "key" mode: only speak on impactful actions.
+      const bigBet = amount >= 8;
+      const isRaise = actionType === "raise";
+      const isFold = actionType === "fold";
+      const lateStreet = stage !== "preflop";
+      return isRaise || (lateStreet && bigBet) || isFold;
+    },
+    [voiceEnabled, voiceLevel]
+  );
+
+  const speak = useCallback(async (speakerName: string, speakerId: string | null, text: string) => {
+    if (!voiceEnabled) return;
+    const t = (text ?? "").trim();
+    if (!t) return;
+    // Queue playback to keep action order stable and avoid concurrent decode/play causing UI stalls.
+    voiceQueueDepthRef.current += 1;
+    setVoicePlaying(true);
+    const job = async () => {
+      setVoiceError(null);
+
+      const hardTimeoutMs = 15000;
+      const hardTimer = window.setTimeout(() => {
+        setVoiceError("Voice timeout");
+      }, hardTimeoutMs);
+
+      try {
+        voiceAbortRef.current?.abort();
+        const controller = new AbortController();
+        voiceAbortRef.current = controller;
+
+        const resp = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            // Send only the spoken content. Use `speakerName` for server-side voice mapping.
+            // Some TTS engines may stop early on bracketed prefixes like "【系统】".
+            text: t,
+            speakerName,
+            speaker: speakerId ?? undefined,
+            format: "mp3",
+          }),
+          signal: controller.signal,
+        });
+        if (!resp.ok) {
+          setVoiceError(`TTS ${resp.status}`);
+          return;
+        }
+        const buf = await resp.arrayBuffer();
+        if (!buf || buf.byteLength < 200) {
+          setVoiceError("TTS audio empty");
+          return;
+        }
+
+        const ctx = voiceCtxRef.current;
+        if (voiceUnlockedRef.current && ctx && ctx.state === "running") {
+          // Stop previous source if any (in case user toggles quickly).
+          try {
+            voiceSourceRef.current?.stop();
+          } catch {
+            // ignore
+          }
+          voiceSourceRef.current = null;
+
+          const audioBuf = await ctx.decodeAudioData(buf.slice(0));
+          await new Promise<void>((resolve) => {
+            const src = ctx.createBufferSource();
+            voiceSourceRef.current = src;
+            src.buffer = audioBuf;
+            src.connect(ctx.destination);
+            src.onended = () => resolve();
+            src.start();
+          });
+          lastTtsAtRef.current = Date.now();
+          lastTtsByNameRef.current = { ...lastTtsByNameRef.current, [speakerName]: Date.now() };
+          return;
+        }
+
+        // If WebAudio isn't ready, don't try to play via HTMLAudioElement (it can overlap / be blocked).
+        // Just skip this utterance to keep game flow stable.
+        setVoiceError("Audio not unlocked");
+      } catch {
+        // ignore
+      } finally {
+        window.clearTimeout(hardTimer);
+        voiceQueueDepthRef.current = Math.max(0, voiceQueueDepthRef.current - 1);
+        if (voiceQueueDepthRef.current === 0) setVoicePlaying(false);
+      }
+    };
+
+    voiceQueueRef.current = voiceQueueRef.current.then(job, job);
+  }, [voiceEnabled]);
 
   // Visitor id + initial chip balance (Supabase backed)
   useEffect(() => {
@@ -256,8 +535,10 @@ ${aiBrief || "（无）"}
 
 当前牌局：第 ${state.handId} 局 · ${state.stage.toUpperCase()} · 底池 ${state.pot}bb · 当前需跟注 ${humanToCall}bb
 
+用户偏好记忆：${userMemoryHint || "（无）"}
+
 最近行动：${lines.join(" | ") || "（无）"}`;
-  }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players]);
+  }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players, userMemoryHint]);
 
   const groupChatFeed = useMemo(() => {
     const items = state.actions
@@ -297,22 +578,28 @@ ${aiBrief || "（无）"}
   };
 
   useEffect(() => {
-    // Trigger one extra AI reply after a new table speech (a.text) appears.
+    // Trigger one extra AI line when it's human's decision point.
     const last = groupChatFeed[groupChatFeed.length - 1];
     if (!last) return;
+    // Only speak at human-vs-AI decision moments (not idle chatter).
+    if (!isHumanTurn) return;
+    const seatActor = state.players[state.toActIndex];
+    if (!seatActor || !seatActor.isHuman) return;
+    // Last visible speech should be from AI (recent pressure / action context).
+    if (last.speaker === "你") return;
 
     const triggerKey = last.id;
     if (lastAutoTriggerRef.current === triggerKey) return;
 
-    // Cooldown / rate-limit: at most 2 auto replies per 20s, and at least 6s apart.
+    // Cooldown / rate-limit: at most 1 auto line per 25s, and at least 10s apart.
     const now = Date.now();
-    autoCooldownRef.current = autoCooldownRef.current.filter((t) => now - t < 20_000);
+    autoCooldownRef.current = autoCooldownRef.current.filter((t) => now - t < 25_000);
     const lastAt = autoCooldownRef.current[autoCooldownRef.current.length - 1] ?? 0;
-    if (now - lastAt < 6_000) return;
-    if (autoCooldownRef.current.length >= 2) return;
+    if (now - lastAt < 10_000) return;
+    if (autoCooldownRef.current.length >= 1) return;
 
-    // Probability gate: not every line needs a follow-up.
-    if (Math.random() > 0.35) {
+    // Probability gate at decision points.
+    if (Math.random() > 0.45) {
       lastAutoTriggerRef.current = triggerKey;
       return;
     }
@@ -322,7 +609,7 @@ ${aiBrief || "（无）"}
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 9000);
-    const prompt = `刚才群里【${last.speaker}】说：“${last.content}”。请让另一位AI接一句（可@别人），保持自然，不要连续刷屏。`;
+    const prompt = `现在轮到主角行动。刚才【${last.speaker}】说：“${last.content}”。请让一位AI对主角说一句临场建议（可简短点名主角），给清晰方向：弃/跟/加其一，不要AI互相闲聊。`;
 
     void fetch("/api/chat", {
       method: "POST",
@@ -351,7 +638,7 @@ ${aiBrief || "（无）"}
       .catch(() => {})
       .finally(() => clearTimeout(timer));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupChatFeed.length, recordChatContext]);
+  }, [groupChatFeed.length, recordChatContext, isHumanTurn, state.players, state.toActIndex]);
 
   const lastActionByActor = useMemo(() => {
     const map = new Map<string, string>();
@@ -465,7 +752,7 @@ ${aiBrief || "（无）"}
       const resp = await fetch("/api/ai-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: currentState, ai }),
+        body: JSON.stringify({ state: currentState, ai, heroName, userMemoryHint }),
         signal: controller.signal,
       }).finally(() => clearTimeout(timer));
       if (!resp.ok) return localFallback;
@@ -491,20 +778,19 @@ ${aiBrief || "（无）"}
     setThinkingActorId(actor.id);
     const decision = await requestAiAction(incoming, actor);
     const acted = applyActionToState(incoming, actor.id, decision.action, decision.amount, decision.text);
-    const memoryLine = `${acted.stage} ${actor.name} ${decision.action}${decision.amount > 0 ? ` ${decision.amount}bb` : ""} ${decision.text ?? ""}`.trim();
-    let persisted: string[] = [];
-    try {
-      persisted = await appendAiMemory(actor.id, memoryLine);
-    } catch {
-      persisted = [];
+    // Trigger TTS in background (do not block turn progression).
+    // Prefer server mapping by AI display name; allow explicit override later.
+    if (shouldSpeak(actor.name, decision.action, decision.amount, acted.stage, decision.text ?? "")) {
+      void speak(actor.name, null, decision.text ?? "");
     }
+    // Keep memory lean: do not append per-hand action logs.
     const next = {
       ...acted,
-      players: acted.players.map((p) =>
-        p.id === actor.id ? { ...p, memory: persisted.length ? persisted : [`${acted.stage} 读到对手节奏，选择 ${decision.action}`, ...p.memory].slice(0, 20) } : p
-      ),
+      players: acted.players,
     };
+
     setThinkingActorId(null);
+
     return next;
   };
 
@@ -655,6 +941,12 @@ ${aiBrief || "（无）"}
 
     if (latest.actor === "系统") {
       const text = latest.text ?? "";
+      // new hand / system messages: light "deal" cue
+      const sysKey = `${state.handId}-${text}`;
+      if (lastSfxKeyRef.current !== sysKey) {
+        lastSfxKeyRef.current = sysKey;
+        if (text.includes("局开始")) playSfx("deal");
+      }
       const matches = [...text.matchAll(/([^\s，。:+]+)\+(\d+)bb/g)];
       if (matches.length > 0) {
         const winners = matches.map((m) => m[1]);
@@ -662,6 +954,7 @@ ${aiBrief || "（无）"}
         if (lastProcessedActionRef.current === actionKey) return;
         lastProcessedActionRef.current = actionKey;
         setWinFx({ text, winners });
+        playSfx("win");
         const clearWin = setTimeout(() => setWinFx(null), 2200);
         return () => {
           clearTimeout(clearWin);
@@ -674,9 +967,17 @@ ${aiBrief || "（无）"}
     const actionKey = `${state.handId}-${latest.actor}-${latest.action}-${latest.amount}-${latest.text ?? ""}`;
     if (lastProcessedActionRef.current === actionKey) return;
     lastProcessedActionRef.current = actionKey;
+    // action sfx
+    const kind =
+      latest.action === "raise" || (latest.action === "call" && latest.amount > 0)
+        ? "bet"
+        : latest.action === "fold"
+          ? "fold"
+          : "check";
+    playSfx(kind as never);
 
     return;
-  }, [state.actions, state.handId, state.players]);
+  }, [state.actions, state.handId, state.players, playSfx]);
 
   useEffect(() => {
     const el = recordListRef.current;
@@ -687,6 +988,7 @@ ${aiBrief || "（无）"}
   useEffect(() => {
     if (isResolving || state.isHandOver) return;
     if (heroNeedsFirstAction) return;
+    if (voiceEnabled && voiceFollowAction && voicePlaying) return;
     const actor = state.players[state.toActIndex];
     if (!actor) return;
     if (actor.isHuman && actor.stack > 0) return;
@@ -695,7 +997,7 @@ ${aiBrief || "（无）"}
       void nextStreetRef.current();
     }, 500);
     return () => clearTimeout(timer);
-  }, [state.toActIndex, state.isHandOver, isResolving, state.players, heroNeedsFirstAction]);
+  }, [state.toActIndex, state.isHandOver, isResolving, state.players, heroNeedsFirstAction, voiceEnabled, voiceFollowAction, voicePlaying]);
 
   const newHand = async () => {
     if (isResolving) return;

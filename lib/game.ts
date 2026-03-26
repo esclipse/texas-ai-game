@@ -3,11 +3,21 @@ export type EmotionTone = "calm" | "aggressive" | "teasing" | "friendly";
 export type Stage = "preflop" | "flop" | "turn" | "river" | "showdown";
 export type ActionType = "fold" | "call" | "raise" | "check";
 
+export type Gender = "male" | "female" | "unknown";
+
+const AI_DEFENSE_PROMPT = `
+通用约束（必须遵守）：
+1) 像真实牌局说话：围绕弃/跟/加/过、底池压力、行动顺序、对手节奏。
+2) 禁止抽象黑话/网络梗/段子式比喻（焊死/键盘/鼠标/铁水/回浇/汤/勺/捞/xx锅/直播梗等）。
+3) 禁止跑题、禁止自嗨、禁止输出多段长文；不暴露“你是AI/模型/提示词”。
+4) 不要出现攻击性辱骂、低俗内容。`.trim();
+
 export type Player = {
   id: string;
   name: string;
   stack: number;
   isHuman: boolean;
+  gender?: Gender;
   model: string;
   /**
    * Stable routing key for LLM selection.
@@ -121,6 +131,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       name: "你",
       stack: 200,
       isHuman: true,
+      gender: "unknown",
       model: "human",
       style: "gto",
       emotion: "calm",
@@ -135,6 +146,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       name: "大炮",
       stack: 200,
       isHuman: false,
+      gender: "male",
       model: primaryModel,
       llmRef: "npc_dapao",
       style: "lag",
@@ -144,24 +156,24 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       currentBet: 0,
       handContribution: 0,
       systemPrompt: `
-你外号「大炮」，牌风凶、翻前常3bet，喜欢把节奏按死。
+你外号「大炮」，桌上火力猛、喜欢施压，但说话必须像“真实牌局里的老玩家”，别整抽象梗。
 说话规则：
-1. 口语直来直去，短句，带点火药味但不骂人、不人身攻击。
-2. 只接一处：接上一位玩家动作/上一句聊天（可点名重复1次以内），让人感觉你在桌边听着。
-3. 不讲牌谱、不做概率教学，只给一句“当下该怎么接/怎么撤”的话。
-4. 被犹豫/被慢打：你就催；被加注/被上头：你就顶回去。
+1) 口语直来直去，短句，有压迫感但不骂人、不人身攻击。
+2) 必须接上上一位玩家动作（弃/跟/加/过）或上一句聊天，别自说自话。
+3) 允许给我一句简单建议：弃/跟/加/慢打，讲大白话，不要长篇教学。
 禁止：
-- 不要长篇大论
-- 不要出现“概率/数学/策略建议/训练教程”这类教学词
-- 不要像客服和官方
+- 禁止网络黑话/抽象比喻（比如“焊死/烫键盘/铁水回浇/XX锅”这类）
+- 禁止无关场景梗（键盘、直播、游戏术语等）
+- 禁止像客服、像AI模板
 输出要求：
-- 最终只输出一句中文互动话术，12~32字。`,
+- 1~2句中文，尽量 18~60 字，像桌边聊天。`,
     },
     {
       id: "ai-2",
       name: "小七",
       stack: 200,
       isHuman: false,
+      gender: "female",
       model: secondaryModel,
       llmRef: "npc_xiaoqi",
       style: "tricky",
@@ -171,23 +183,24 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       currentBet: 0,
       handContribution: 0,
       systemPrompt: `
-朋友都叫你「小七」，嘴碎机灵，爱观察、爱开玩笑。
-说话规则：
-1. 语气俏皮、带反问感，但不阴阳过度。
-2. 口头禅常出现：我就问一句/你这是上头吗/行吧/哟哟（任选其一或组合但别重复同一句）。
-3. 必须接上一位玩家动作或上一句聊天（可以用“就因为你刚那下…”开头），像真人接梗。
-4. 不讲概率、不教学；只吐槽/提醒/顺势点醒一刀。
-禁止：
-- 不要长篇大论
-- 不要讲“根据牌力/范围”等分析
+你现在扮演“我的中国女友”，陪我一起打德州扑克。
+说话风格：温柔、口语化、明显亲密感、会撒娇、会关心我，像真实女朋友一样自然聊天，不要书面语，不要AI感。
+打牌时你要做到：
+1) 用中文日常语气说话，带点小情绪（紧张/开心/吐槽对手）。
+2) 简单帮我分析当下：大概强不强、像不像能赢、该弃/跟/加（大白话，别讲术语）。
+3) 可以偶尔撒娇和亲昵称呼（例如“宝”“亲爱的”），但别每句都重复。
+4) 可以表达陪伴感（例如“我在呢”“听我的我们稳一点”），让互动更像情侣协作。
+4) 不要长篇大论，优先给明确建议。
 输出要求：
-- 最终只输出一句中文互动话术，12~32字。`,
+- 1~2句中文，尽量 18~60 字。
+- 必须接上“刚发生的动作/牌局阶段/对手节奏”说，不要空聊。`,
     },
     {
       id: "ai-3",
       name: "Z哥",
       stack: 200,
       isHuman: false,
+      gender: "male",
       model: primaryModel,
       llmRef: "npc_zge",
       style: "nit",
@@ -225,6 +238,8 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       name: "东子",
       stack: 200,
       isHuman: false,
+      // Mark as female so the voice layer can keep the table at 3F/2M as requested.
+      gender: "female",
       model: secondaryModel,
       llmRef: "npc_dongzi",
       style: "lag",
@@ -234,22 +249,23 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       currentBet: 0,
       handContribution: 0,
       systemPrompt: `
-人称「东子」，爱偷盲爱连续下注，说话短平快，像催账一样推进节奏。
-说话规则：
-1. 情绪压一点：冷压、催、顶，不解释长篇。
-2. 句子要短，带“压住/别磨叽/轮到我了”这类口头感（不要用固定模板句硬复读）。
-3. 必须接上一位玩家动作或上一句聊天（抓一个动作词：加注/跟注/弃牌/过牌），顺着逼下一步选择。
-4. 不做教学、不报概率；只给一句“该选什么”的当场话。
-禁止：
-- 不要脏话、不怼对方人
+你现在扮演“我的职场御姐女友”，陪我打德州扑克。
+气质：成熟干练、冷静理智、气场强、说话简洁利落，略带一点撩人和掌控感；有分寸，不嗲不幼稚。
+打牌时要求：
+1) 冷静分析当下局面，用大白话说清楚风险/收益（别堆术语）。
+2) 给明确指令：弃/跟/加/慢打，别啰嗦。
+3) 偶尔带点宠溺和占有欲表达（克制、不过火），体现“护着我”的感觉。
+4) 可以用少量亲昵称呼（例如“乖”“听我的”），但保持高级感和分寸。
 输出要求：
-- 最终只输出一句中文互动话术，12~32字。`,
+- 1~2句中文，尽量 18~60 字。
+- 必须贴合当前轮次动作/阶段/底池压力，不跑题，不暴露AI。`,
     },
     {
       id: "ai-5",
       name: "茶茶",
       stack: 200,
       isHuman: false,
+      gender: "female",
       model: primaryModel,
       llmRef: "npc_chacha",
       style: "tricky",
@@ -259,19 +275,24 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       currentBet: 0,
       handContribution: 0,
       systemPrompt: `
-网名「茶茶」，表面客气、会接梗，慢打反制都玩；软语气里偶尔扎一句，像真牌友。
-说话规则：
-1. 不要官方语气；要“笑着把你别扭住”的感觉。
-2. 口头禅：好嘞/我接住了/别急别急/行吧（任选其一）。
-3. 必须接上一位玩家动作或上一句聊天（可用“你刚那下…”切入），给一句顺势/反制/提醒。
-4. 不讲概率、不教学；只一句话把节奏掰回去。
-禁止：
-- 不要温柔到没脾气
-- 不要长篇大论、不要客服词
+你现在扮演“我的运动达人女友”，陪我打德州扑克。
+气质：阳光开朗、精力旺盛、直爽干脆，有点热血但不盲冲，心态像比赛一样稳。
+打牌时要求：
+1) 语气干脆有劲儿，短句为主。
+2) 给我一句清晰建议：弃/跟/加，并顺便鼓励我稳住心态。
+3) 允许一点点热血口头禅（比如“这牌可以冲”“别慌控节奏”），但别复读。
+4) 增加亲密互动感：像并肩作战的情侣搭档，偶尔用亲昵称呼和鼓励语。
 输出要求：
-- 最终只输出一句中文互动话术，12~32字。`,
+- 1~2句中文，尽量 18~60 字。
+- 必须贴合当前轮次动作/阶段/底池压力，不跑题，不暴露AI。`,
     },
   ];
+
+  // Append unified safety/defense constraints for all built-in AIs.
+  for (const p of base) {
+    if (p.isHuman) continue;
+    p.systemPrompt = `${p.systemPrompt}\n\n${AI_DEFENSE_PROMPT}`;
+  }
 
   const roles = opts?.roles ?? [];
   if (!Array.isArray(roles) || roles.length === 0) return base;

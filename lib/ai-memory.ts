@@ -7,19 +7,54 @@ export type AiMemoryRecord = {
 const DB_NAME = "ai-texas-memory";
 const DB_VERSION = 1;
 const STORE_NAME = "memories";
-const MAX_MEMORIES = 20;
+const MAX_MEMORIES = 6;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const timeoutMs = 1500;
+    const timer = window.setTimeout(() => {
+      try {
+        req.onerror = null;
+        req.onsuccess = null;
+        req.onupgradeneeded = null;
+        // onblocked exists on IDBOpenDBRequest in browsers that implement it.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (req as any).onblocked = null;
+      } catch {
+        // ignore
+      }
+      reject(new Error("indexedDB open timeout"));
+    }, timeoutMs);
+
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: "id" });
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (req as any).onblocked = () => {
+      window.clearTimeout(timer);
+      reject(new Error("indexedDB open blocked"));
+    };
+    req.onsuccess = () => {
+      window.clearTimeout(timer);
+      const db = req.result;
+      // If another tab upgrades the db, close to avoid blocking/hanging transactions.
+      db.onversionchange = () => {
+        try {
+          db.close();
+        } catch {
+          // ignore
+        }
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      window.clearTimeout(timer);
+      reject(req.error);
+    };
   });
 }
 
