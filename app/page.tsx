@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Coins, Loader2, RefreshCcw, Send } from "lucide-react";
+import { Coins, Loader2, RefreshCcw, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,7 @@ import {
   type Player,
   type PublicRole,
 } from "@/lib/game";
-import { loadAiMemories } from "@/lib/ai-memory";
-import { userMemorySummary } from "@/lib/user-memory";
-import { loadHumanProfile, updateHumanProfile } from "@/lib/human-profile";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AiRecordChat } from "@/components/ai-record-chat";
 
@@ -72,8 +70,14 @@ export default function Home() {
   const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authEmail, setAuthEmail] = useState<string>("");
+  const [showLoginPanel, setShowLoginPanel] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [authMessage, setAuthMessage] = useState<string>("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [heroName, setHeroName] = useState<string>("");
-  const [userMemoryHint, setUserMemoryHint] = useState<string>("");
   const [isResolving, setIsResolving] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -91,7 +95,6 @@ export default function Home() {
   const autoCooldownRef = useRef<number[]>([]);
   const tauntCooldownRef = useRef<number[]>([]);
   const stateRef = useRef(state);
-  const humanProfileRef = useRef(loadHumanProfile(null));
   const lastSyncedBalanceRef = useRef<number | null>(null);
   const balanceSyncTimerRef = useRef<number | null>(null);
   const nextStreetRef = useRef<() => Promise<void>>(async () => {});
@@ -141,21 +144,6 @@ export default function Home() {
   useEffect(() => {
     const onFirstGesture = () => {
       void unlockAudio();
-      // First-time nickname collection (stored).
-      try {
-        const key = "ai-game:heroName";
-        const existing = window.localStorage.getItem(key);
-        if (!existing || !existing.trim()) {
-          const picked = window.prompt("给自己起个昵称（对局里AI会这么叫你）", "") ?? "";
-          const trimmed = picked.trim().slice(0, 12);
-          if (trimmed) window.localStorage.setItem(key, trimmed);
-          setHeroName(trimmed);
-        } else {
-          setHeroName(existing.trim().slice(0, 12));
-        }
-      } catch {
-        // ignore
-      }
       window.removeEventListener("pointerdown", onFirstGesture);
       window.removeEventListener("keydown", onFirstGesture);
       window.removeEventListener("touchstart", onFirstGesture);
@@ -171,11 +159,99 @@ export default function Home() {
   }, [unlockAudio]);
 
   useEffect(() => {
-    setUserMemoryHint(userMemorySummary(220));
-    const onFocus = () => setUserMemoryHint(userMemorySummary(220));
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    try {
+      const raw = window.localStorage.getItem("ai-game:heroName") ?? "";
+      setHeroName(raw.trim().slice(0, 12));
+    } catch {
+      // ignore
+    }
   }, []);
+
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    let alive = true;
+    void sb.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      const session = data.session;
+      setAuthUserId(session?.user?.id ?? null);
+      setAuthEmail(session?.user?.email ?? "");
+      setAuthToken(session?.access_token ?? null);
+    });
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+      setAuthUserId(session?.user?.id ?? null);
+      setAuthEmail(session?.user?.email ?? "");
+      setAuthToken(session?.access_token ?? null);
+    });
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authUserId && !visitorId) {
+      setShowLoginPanel(true);
+    }
+  }, [authUserId, visitorId]);
+
+  useEffect(() => {
+    if (authUserId || visitorId) {
+      setShowLoginPanel(false);
+    }
+  }, [authUserId, visitorId]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const resp = await fetch("/api/auth-wallet", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        const data = (await resp.json()) as { chipBalance?: number };
+        if (!resp.ok || typeof data.chipBalance !== "number" || cancelled) return;
+        setVisitorBalance(Math.max(0, Math.floor(data.chipBalance)));
+      } catch {
+        // ignore
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  // Guest visitor mode (single 200 chips, no daily refill)
+  useEffect(() => {
+    if (authUserId) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const cached = typeof window !== "undefined" ? window.localStorage.getItem("ai-game:visitorId") : null;
+        if (cached && cached.trim()) setVisitorId(cached.trim());
+
+        const seed = stableFingerprintSeed();
+        const fp = await sha256Base64Url(`v1|${seed}`);
+        const resp = await fetch("/api/visitor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fingerprint: fp }),
+        });
+        const data = (await resp.json()) as { visitorId?: string; chipBalance?: number };
+        if (!resp.ok || !data.visitorId || typeof data.chipBalance !== "number") return;
+        if (cancelled) return;
+        setVisitorId(data.visitorId);
+        setVisitorBalance(Math.max(0, Math.floor(data.chipBalance)));
+        window.localStorage.setItem("ai-game:visitorId", data.visitorId);
+      } catch {
+        // ignore
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUserId]);
 
   const playSfx = useCallback(
     (kind: "bet" | "check" | "fold" | "deal" | "win") => {
@@ -368,50 +444,6 @@ export default function Home() {
     voiceQueueRef.current = voiceQueueRef.current.then(job, job);
   }, [voiceEnabled]);
 
-  // Visitor id + initial chip balance (Supabase backed)
-  useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const cached = typeof window !== "undefined" ? window.localStorage.getItem("ai-game:visitorId") : null;
-        if (cached && cached.trim()) setVisitorId(cached.trim());
-
-        const seed = stableFingerprintSeed();
-        const fp = await sha256Base64Url(`v1|${seed}`);
-        const resp = await fetch("/api/visitor", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fingerprint: fp }),
-        });
-        const data = (await resp.json()) as { visitorId?: string; chipBalance?: number };
-        if (!resp.ok || !data.visitorId || typeof data.chipBalance !== "number") {
-          // Fallback: keep local chip balance if supabase isn't configured/available.
-          try {
-            const rawBal = window.localStorage.getItem("ai-game:chipBalance");
-            const v = rawBal ? Number(rawBal) : NaN;
-            if (Number.isFinite(v) && v > 0 && !cancelled) setVisitorBalance(Math.floor(v));
-          } catch {}
-          return;
-        }
-        if (cancelled) return;
-        setVisitorId(data.visitorId);
-        setVisitorBalance(data.chipBalance);
-        window.localStorage.setItem("ai-game:visitorId", data.visitorId);
-        window.localStorage.setItem("ai-game:chipBalance", String(Math.max(0, Math.floor(data.chipBalance))));
-      } catch {
-        // Fallback: local balance
-        try {
-          const rawBal = window.localStorage.getItem("ai-game:chipBalance");
-          const v = rawBal ? Number(rawBal) : NaN;
-          if (Number.isFinite(v) && v > 0 && !cancelled) setVisitorBalance(Math.floor(v));
-        } catch {}
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Load public config (roles etc.) once.
   useEffect(() => {
@@ -467,7 +499,7 @@ export default function Home() {
 
   // Debounced chip balance sync to Supabase (server-side).
   useEffect(() => {
-    if (!visitorId) return;
+    if (!authToken && !visitorId) return;
     const humanNow = state.players.find((p) => p.id === "human");
     if (!humanNow) return;
     const bal = Math.max(0, Math.floor(humanNow.stack));
@@ -478,11 +510,18 @@ export default function Home() {
 
     if (balanceSyncTimerRef.current) window.clearTimeout(balanceSyncTimerRef.current);
     balanceSyncTimerRef.current = window.setTimeout(() => {
-      void fetch("/api/balance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visitorId, chipBalance: bal }),
-      }).finally(() => {
+      const req = authToken
+        ? fetch("/api/auth-wallet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({ chipBalance: bal }),
+          })
+        : fetch("/api/balance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ visitorId, chipBalance: bal }),
+          });
+      void req.finally(() => {
         lastSyncedBalanceRef.current = bal;
       });
     }, 900);
@@ -490,7 +529,7 @@ export default function Home() {
     return () => {
       if (balanceSyncTimerRef.current) window.clearTimeout(balanceSyncTimerRef.current);
     };
-  }, [state.players, visitorId]);
+  }, [state.players, authToken, visitorId]);
 
   const human = state.players.find((p) => p.id === "human") ?? state.players[0];
   const isBusted = human.stack <= 0 && state.isHandOver;
@@ -522,6 +561,7 @@ export default function Home() {
   const canHumanRaise = state.raiseCountThisRound < 3 && human.stack > humanToCall + minRaiseDelta;
   const isHumanTurn = Boolean(toActPlayer?.isHuman && !state.isHandOver);
   const revealAllHoleCards = state.stage === "showdown" || state.isHandOver;
+  const guestOutOfChips = Boolean(!authUserId && visitorId && isBusted);
   const seatRingClasses = [
     "left-1/2 top-3 -translate-x-1/2",
     "right-6 top-20",
@@ -532,11 +572,15 @@ export default function Home() {
   ];
 
   const statusText = useMemo(() => {
+    if (!authUserId && !visitorId) return "请先登录或进入访客模式开始对局";
+    if (guestOutOfChips) return "访客筹码已用完，登录可领取今日免费 200bb";
     if (isBusted) return "积分耗尽，无法继续。";
     if (human.stack <= 0 && !state.isHandOver) return "你已全下，等待摊牌结算。";
+    if (authUserId) return "已登录 · 每日最多 200bb（不累加，次日重置）";
+    if (visitorId) return "访客模式 · 初始 200bb，用完不补";
     const turn = state.isHandOver ? "本局结束" : `行动: ${toActPlayer?.name ?? "-"}`;
     return `第 ${state.handId} 局 · ${state.stage.toUpperCase()} · 底池 ${state.pot}bb · ${turn}`;
-  }, [isBusted, human.stack, state.handId, state.pot, state.stage, state.isHandOver, toActPlayer?.name]);
+  }, [authUserId, visitorId, guestOutOfChips, isBusted, human.stack, state.handId, state.pot, state.stage, state.isHandOver, toActPlayer?.name]);
 
   const recordChatContext = useMemo(() => {
     const recent = state.actions
@@ -568,10 +612,8 @@ ${aiBrief || "（无）"}
 
 当前牌局：第 ${state.handId} 局 · ${state.stage.toUpperCase()} · 底池 ${state.pot}bb · 当前需跟注 ${humanToCall}bb
 
-用户偏好记忆：${userMemoryHint || "（无）"}
-
 最近行动：${lines.join(" | ") || "（无）"}`;
-  }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players, userMemoryHint]);
+  }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players]);
 
   const groupChatFeed = useMemo(() => {
     const items = state.actions
@@ -760,25 +802,9 @@ ${aiBrief || "（无）"}
 
 
   const syncState = (next: typeof state) => {
-    const merged = { ...next, humanProfile: humanProfileRef.current };
-    stateRef.current = merged;
-    setState(merged);
+    stateRef.current = next;
+    setState(next);
   };
-
-  useEffect(() => {
-    const ids = state.players.filter((p) => !p.isHuman).map((p) => p.id);
-    void loadAiMemories(ids).then((map) => {
-      const next = {
-        ...stateRef.current,
-        players: stateRef.current.players.map((p) =>
-          p.isHuman ? p : { ...p, memory: map[p.id] ?? p.memory }
-        ),
-      };
-      syncState(next);
-    });
-    // initial hydration only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const requestAiAction = async (currentState: typeof state, ai: Player) => {
     const localFallback = aiDecision(currentState, ai);
@@ -788,7 +814,7 @@ ${aiBrief || "（无）"}
       const resp = await fetch("/api/ai-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: currentState, ai, heroName, userMemoryHint }),
+        body: JSON.stringify({ state: currentState, ai, heroName }),
         signal: controller.signal,
       }).finally(() => clearTimeout(timer));
       if (!resp.ok) return localFallback;
@@ -1054,33 +1080,6 @@ ${aiBrief || "（无）"}
     const actor = current.players[current.toActIndex];
     if (!actor || !actor.isHuman) return;
 
-    // Update exploit profile (minimal, local only).
-    try {
-      const stage = current.stage;
-      const toCall = Math.max(0, current.currentBet - actor.currentBet);
-      const heroIdx = current.players.findIndex((p) => p.id === actor.id);
-      const offsetFromBb = (heroIdx - current.bbIndex + current.players.length) % current.players.length;
-      const latePos = stage === "preflop" && (offsetFromBb === 3 || offsetFromBb === 4 || offsetFromBb === 5); // CO/BTN/SB-ish
-      const isAllIn = action === "raise" && raiseBy >= Math.max(0, actor.stack - toCall);
-
-      const p = loadHumanProfile(visitorId);
-      const patch: Record<string, number> = {};
-      if (stage === "preflop") {
-        if (action === "raise") patch.preflopRaises = (p.preflopRaises ?? 0) + 1;
-        if (action === "call") patch.preflopCalls = (p.preflopCalls ?? 0) + 1;
-        if (action === "fold") patch.preflopFolds = (p.preflopFolds ?? 0) + 1;
-        if (latePos && action === "raise" && toCall === 0) patch.stealsLatePos = (p.stealsLatePos ?? 0) + 1;
-        if (isAllIn) patch.allIns = (p.allIns ?? 0) + 1;
-      } else {
-        if (action === "raise") patch.postflopBets = (p.postflopBets ?? 0) + 1;
-        if (action === "call") patch.postflopCalls = (p.postflopCalls ?? 0) + 1;
-      }
-      patch.handsSeen = (p.handsSeen ?? 0) + 0; // keep for future; no-op
-      humanProfileRef.current = updateHumanProfile(visitorId, patch);
-    } catch {
-      // ignore
-    }
-
     setIsResolving(true);
     try {
       const acted = applyActionToState(current, actor.id, action, raiseBy, text);
@@ -1090,7 +1089,42 @@ ${aiBrief || "（无）"}
     }
   };
 
-  const actionDisabled = isBusted || state.isHandOver || !isHumanTurn || isResolving;
+  const actionDisabled = (!authUserId && !visitorId) || isBusted || state.isHandOver || !isHumanTurn || isResolving;
+
+  const sendLoginLink = async () => {
+    const email = emailInput.trim().toLowerCase();
+    if (!email) {
+      setAuthMessage("请输入邮箱");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      const sb = supabaseBrowser();
+      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+      if (error) {
+        setAuthMessage(`发送失败：${error.message}`);
+        return;
+      }
+      setAuthMessage("登录邮件已发送，请去邮箱点击链接完成登录。");
+    } catch (e) {
+      setAuthMessage(`发送失败：${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    setAuthBusy(true);
+    try {
+      const sb = supabaseBrowser();
+      await sb.auth.signOut();
+      setAuthMessage("已退出登录");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-y-auto bg-[#faf9f6] p-2 pb-36 text-[#1A1A1A] sm:min-h-screen sm:h-auto sm:p-4 sm:pb-4 lg:pb-4 lg:p-5">
@@ -1103,18 +1137,42 @@ ${aiBrief || "（无）"}
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {authUserId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-lg border-[#e9e5dc] bg-white px-2.5 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                onClick={() => void logout()}
+                disabled={authBusy}
+              >
+                {authEmail ? `已登录 ${authEmail}` : "已登录"} · 退出
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-lg border-[#e9e5dc] bg-white px-2.5 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                onClick={() => {
+                  setShowLoginPanel(true);
+                  setAuthMessage("");
+                }}
+              >
+                邮箱登录
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="gap-1.5 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
               onClick={() => {
-                const subject = encodeURIComponent("鱼桌 - 用户反馈");
-                window.location.href = `mailto:regretn@163.com?subject=${subject}`;
+                window.location.href = "/user";
               }}
             >
-              <Send className="h-3.5 w-3.5" />
-              联系
+              <UserRound className="h-3.5 w-3.5" />
+              用户
             </Button>
           </div>
         </div>
@@ -1123,12 +1181,27 @@ ${aiBrief || "（无）"}
             variant="secondary"
             className={cn(
               "w-fit whitespace-normal border-0 text-left text-[10px] leading-snug sm:text-xs",
-              isBusted ? "bg-[#ebcecf] text-[#c46687]" : "bg-[#f1ede6] text-[#788d5d]"
+              guestOutOfChips || isBusted ? "bg-[#ebcecf] text-[#c46687]" : "bg-[#f1ede6] text-[#788d5d]"
             )}
           >
             {statusText}
           </Badge>
         </div>
+        {guestOutOfChips ? (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 rounded-lg bg-[#d97757] px-3 text-[11px] font-semibold text-white hover:opacity-90"
+              onClick={() => {
+                setShowLoginPanel(true);
+                setAuthMessage("登录后将自动领取今日 200bb。");
+              }}
+            >
+              立即登录领 200bb
+            </Button>
+          </div>
+        ) : null}
         <div className="flex gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden">
           {state.players.map((p, seatIndex) => {
             const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
@@ -1576,6 +1649,44 @@ ${aiBrief || "（无）"}
               {opt.label}
             </button>
           ))}
+        </div>
+      )}
+      {showLoginPanel && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
+            <div className="mb-2 text-sm font-semibold text-[#1A1A1A]">邮箱登录（多设备共享筹码）</div>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="输入邮箱"
+              className="h-10 w-full rounded-lg border border-[#e9e5dc] px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-[#e9e5dc] bg-white text-xs"
+                onClick={() => setShowLoginPanel(false)}
+              >
+                继续访客
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-[#e9e5dc] bg-white text-xs"
+                onClick={() => setShowLoginPanel(false)}
+              >
+                关闭
+              </Button>
+              <Button type="button" size="sm" className="text-xs" onClick={() => void sendLoginLink()} disabled={authBusy}>
+                {authBusy ? "发送中..." : "发送登录邮件"}
+              </Button>
+            </div>
+            {authMessage ? <div className="mt-2 text-xs text-[#d97757]">{authMessage}</div> : null}
+          </div>
         </div>
       )}
     </main>
