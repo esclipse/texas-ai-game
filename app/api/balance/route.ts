@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { debugLog } from "@/lib/debug-log";
 
 type Body = {
   visitorId: string;
@@ -8,6 +9,7 @@ type Body = {
 };
 
 export async function POST(req: Request) {
+  debugLog("info", "balance", "start");
   const body = (await req.json()) as Partial<Body>;
   const visitorId = typeof body.visitorId === "string" ? body.visitorId.trim() : "";
   const chipBalance = typeof body.chipBalance === "number" ? Math.floor(body.chipBalance) : NaN;
@@ -23,7 +25,11 @@ export async function POST(req: Request) {
     .update({ chip_balance: chipBalance })
     .eq("visitor_id", visitorId);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    debugLog("error", "balance", "update failed", { message: error.message });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  debugLog("info", "balance", "ok", { visitorId, chipBalance });
   return NextResponse.json({ ok: true });
 }
 

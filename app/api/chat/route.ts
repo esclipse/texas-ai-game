@@ -2,6 +2,7 @@ import { convertToModelMessages, generateText, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { getLlmConfig } from "@/lib/app-config";
+import { debugLog } from "@/lib/debug-log";
 
 function sanitizeAsciiToken(raw: string | undefined) {
   const trimmed = (raw ?? "").trim();
@@ -21,6 +22,7 @@ function sseLine(data: unknown) {
 }
 
 export async function POST(req: Request) {
+  debugLog("info", "chat", "start");
   const body = (await req.json()) as {
     messages?: unknown[];
     gameContext?: unknown;
@@ -67,6 +69,7 @@ ${gameContext || "（无）"}
     const modelName = (p.models?.chat ?? "").trim();
     if (!apiKey || !baseURL || !modelName) {
       lastErr = new Error(`Missing provider config: ${p.id}`);
+      debugLog("error", "chat", "missing provider config", { id: p.id, hasKey: Boolean(apiKey), hasBaseURL: Boolean(baseURL), hasModel: Boolean(modelName) });
       continue;
     }
 
@@ -104,9 +107,11 @@ ${gameContext || "（无）"}
       });
     } catch (e) {
       lastErr = e;
+      debugLog("error", "chat", "provider failed", { id: p.id, message: e instanceof Error ? e.message : String(e) });
     }
   }
 
   const msg = lastErr instanceof Error ? lastErr.message : "LLM providers all failed";
+  debugLog("error", "chat", "all providers failed", { message: msg });
   return new Response(msg, { status: 502 });
 }
