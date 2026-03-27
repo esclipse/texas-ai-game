@@ -6,7 +6,6 @@ import { useChat } from "@ai-sdk/react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { updateUserMemoryFromText } from "@/lib/user-memory";
 
 function parseGroupSpeaker(text: string) {
   const trimmed = text.trim();
@@ -74,7 +73,6 @@ export function AiRecordChat({
     const text = input.trim();
     if (!text) return;
     if (isBusy) return;
-    updateUserMemoryFromText(text);
     setInput("");
     await sendMessage({ text });
   };

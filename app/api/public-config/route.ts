@@ -27,7 +27,7 @@ export async function GET() {
                 { id: "ai-1", name: "大炮", llmRef: "npc_dapao" },
                 { id: "ai-2", name: "小七", llmRef: "npc_xiaoqi" },
                 { id: "ai-3", name: "Z哥", llmRef: "npc_zge" },
-                { id: "ai-4", name: "东子", llmRef: "npc_dongzi" },
+                { id: "ai-4", name: "幂幂", llmRef: "npc_dongzi" },
                 { id: "ai-5", name: "茶茶", llmRef: "npc_chacha" },
               ].map((ai) => [ai.id, pickAiActionModelByAi(aiAction, ai)])
             )

@@ -49,6 +49,23 @@ function pickZGeLine(kind: "fold" | "call" | "raise" | "check") {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function humanizeTableLine(raw: string, fallback: string) {
+  const src = (raw ?? "").trim() || fallback;
+  const oneLine = src.replace(/\s+/g, " ").trim();
+  // Keep at most the first 1-2 short clauses.
+  const parts = oneLine.split(/[。！？!?\n]/).map((x) => x.trim()).filter(Boolean);
+  let s = parts.slice(0, 2).join("，");
+  if (!s) s = fallback;
+  // Too long -> hard cut to keep "human short talk" feeling.
+  const maxLen = 26;
+  if (s.length > maxLen) s = `${s.slice(0, maxLen)}…`;
+  // Too short -> fallback.
+  if (s.length < 4) s = fallback;
+  // Add emotion punctuation if missing.
+  if (!/[。！？!?…]$/.test(s)) s = `${s}。`;
+  return s;
+}
+
 export async function POST(req: Request) {
   debugLog("info", "ai-action", "start");
   const { state, ai, heroName, userMemoryHint } = (await req.json()) as RequestBody;
@@ -58,6 +75,7 @@ export async function POST(req: Request) {
     const isBadText = (raw: string) => {
       const t = (raw ?? "").trim();
       if (!t) return true;
+      if (t.length > 48) return true;
       // Block "abstract meme" patterns that break realism.
       if (/焊|铁水|回浇|键盘|鼠标|xx锅|锅|汤|勺|捞|泡面汤|烫手|直播|梗图/.test(t)) return true;
       // Do not leak exact hole-card notations, e.g. A4s / JTs / AKo / AsKd.
@@ -91,10 +109,10 @@ export async function POST(req: Request) {
 {"action":"fold|call|raise|check","amount":number,"text":"一句中文互动话术"}
 要求: 必须遵守当前轮次规则，若需跟注过大可弃牌。amount 仅在 raise 时表示加注增量，且应>=最小加注增量。
 互动要求:
-1) text 必须像真人牌桌接话，口语化，1~2句，18~60字（允许更自然一点）；
+1) text 必须像真人牌桌接话，口语化，优先 1 句短句（6~22字），最多 2 句，绝对不要长段落；
 2) 至少有一处“对上一位玩家动作/上一句聊天”的回应（可点名）；
 3) 禁止复读模板词：不要出现“判断你偏xx风格”“按计划执行”“这节奏挺工整”等机器句；
-4) 可以有轻微情绪和个性，但不要脏话、不要客服语气。
+4) 情绪要明显：允许“哎/行/稳住/别急/上啊”等语气词；不要客服语气。
 5) 若长期记忆里有对某个玩家的印象，可自然带入一句，但不要生硬背诵。
 6) 禁止“抽象黑话/网络梗/无关比喻”：不要出现键盘/焊死/铁水/回浇/xx锅等，也不要像在讲段子。
 7) 只围绕当前牌局说话：不要扯游戏、直播、键盘、梗图、上网冲浪等无关内容。
@@ -115,6 +133,7 @@ export async function POST(req: Request) {
             content: `${ai.systemPrompt || "你是一个会打牌且会互动的 AI 角色。"}
 你在一个6人德州牌桌聊天里。你每次发言都要“接上一句”或“接上一个动作”，像真人临场反应。
 风格要求：短句、口语、有情绪起伏；少用书面语；避免重复固定句式。
+单条回复优先 1 句（6~22字），最多 2 句，总长度尽量不超过 26 字。
 允许给出简单建议（弃/跟/加/慢打），用大白话，不要长篇教学。`,
           },
           { role: "user", content: prompt },
@@ -149,9 +168,10 @@ export async function POST(req: Request) {
 
     const nextText = (() => {
       const candidate = typeof parsed.text === "string" ? parsed.text.trim() : "";
-      if (candidate && !isBadText(candidate)) return candidate;
+      const baseFallback = ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text;
+      if (candidate && !isBadText(candidate)) return humanizeTableLine(candidate, baseFallback);
       // Hard fallback to local line if model output is bad.
-      return ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text;
+      return humanizeTableLine(baseFallback, baseFallback);
     })();
     debugLog("info", "ai-action", "ok", { ai: ai.name, action: fallback.action, amount: fallback.amount, textLen: nextText.length });
 

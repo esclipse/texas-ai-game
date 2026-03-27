@@ -249,7 +249,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
     },
     {
       id: "ai-4",
-      name: "东子",
+      name: "幂幂",
       stack: 200,
       isHuman: false,
       // Mark as female so the voice layer can keep the table at 3F/2M as requested.
@@ -788,7 +788,7 @@ function generateEmotionLine(actor: Player, stage: Stage, targetStyle: PlayStyle
       fold: ["弃得干脆，挺会选。", "跑得快也好，别乱来。", "不亏就行。"],
       check: ["慢就是快，先过。", "不急，等他露。", "该你的再来。"],
     },
-    东子: {
+    幂幂: {
       raise: ["加就加，别磨叽。", "压住，别给他舒服局。", "顶回去，轮到我了。"],
       call: ["跟就跟，搞快点。", "接着压，别拖。", "别磨叽，直接推进。"],
       fold: ["弃了就弃，别拖着。", "跑了就跑了，继续。", "行，换我来顶。"],
@@ -806,7 +806,7 @@ function generateEmotionLine(actor: Player, stage: Stage, targetStyle: PlayStyle
     大炮: ["翻前别客气，直接压。", "开局就要有火药味。", "先点火，别磨叽。"],
     小七: ["嘿嘿，先看你怎么演。", "这局有点意思，别装。", "我先问一句，你敢不敢？"],
     Z哥: ["先稳着，等好机会。", "不慌，慢就是快。", "别乱摸，拿不住就扔。"],
-    东子: ["翻前就推进，别拖。", "该顶就顶，轮到我了。", "别磨叽，直接选。"],
+    幂幂: ["翻前就推进，别拖。", "该顶就顶，轮到我了。", "别磨叽，直接选。"],
     茶茶: ["行吧，慢也得有节奏。", "别闷着，给点反应。", "笑着来，但别乱追。"],
   };
 
