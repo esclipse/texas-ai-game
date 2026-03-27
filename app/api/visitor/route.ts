@@ -10,6 +10,12 @@ function hexFromBuf(buf: ArrayBuffer) {
   return out;
 }
 
+function normalizeChipBalance(value: unknown) {
+  const num = typeof value === "number" ? value : Number.NaN;
+  if (!Number.isFinite(num)) return 200;
+  return Math.max(0, Math.floor(num));
+}
+
 async function sha256Hex(input: string) {
   const enc = new TextEncoder();
   const buf = await crypto.subtle.digest("SHA-256", enc.encode(input));
@@ -42,10 +48,11 @@ export async function POST(req: Request) {
   }
 
   if (existing) {
-    debugLog("info", "visitor", "existing", { chipBalance: existing.chip_balance });
+    const chipBalance = normalizeChipBalance(existing.chip_balance);
+    debugLog("info", "visitor", "existing", { chipBalance });
     return NextResponse.json({
       visitorId: existing.visitor_id,
-      chipBalance: existing.chip_balance,
+      chipBalance,
       isNew: false,
     });
   }
@@ -65,10 +72,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
 
-  debugLog("info", "visitor", "inserted", { chipBalance: inserted.chip_balance });
+  const chipBalance = normalizeChipBalance(inserted.chip_balance);
+  debugLog("info", "visitor", "inserted", { chipBalance });
   return NextResponse.json({
     visitorId: inserted.visitor_id,
-    chipBalance: inserted.chip_balance,
+    chipBalance,
     isNew: true,
   });
 }

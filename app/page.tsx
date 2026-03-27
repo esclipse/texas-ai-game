@@ -70,6 +70,7 @@ export default function Home() {
   const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
+  const [visitorInitDone, setVisitorInitDone] = useState(false);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
@@ -187,10 +188,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!authUserId && !visitorId) {
+    if (!authUserId && visitorInitDone && !visitorId) {
       setShowLoginPanel(true);
     }
-  }, [authUserId, visitorId]);
+  }, [authUserId, visitorId, visitorInitDone]);
 
   useEffect(() => {
     if (authUserId || visitorId) {
@@ -236,13 +237,17 @@ export default function Home() {
           body: JSON.stringify({ fingerprint: fp }),
         });
         const data = (await resp.json()) as { visitorId?: string; chipBalance?: number };
-        if (!resp.ok || !data.visitorId || typeof data.chipBalance !== "number") return;
+        if (!resp.ok || !data.visitorId) return;
         if (cancelled) return;
         setVisitorId(data.visitorId);
-        setVisitorBalance(Math.max(0, Math.floor(data.chipBalance)));
+        if (typeof data.chipBalance === "number" && Number.isFinite(data.chipBalance)) {
+          setVisitorBalance(Math.max(0, Math.floor(data.chipBalance)));
+        }
         window.localStorage.setItem("ai-game:visitorId", data.visitorId);
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setVisitorInitDone(true);
       }
     };
     void run();
