@@ -68,6 +68,7 @@ export default function Home() {
   const [handId, setHandId] = useState(1);
   const [state, setState] = useState(initialHand);
   const [publicRoles, setPublicRoles] = useState<PublicRole[] | null>(null);
+  const [tableMode, setTableMode] = useState<"6max" | "hu">("6max");
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [visitorBalance, setVisitorBalance] = useState<number | null>(null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export default function Home() {
   const [authBusy, setAuthBusy] = useState(false);
   const [heroName, setHeroName] = useState<string>("");
   const [isResolving, setIsResolving] = useState(false);
+  const [pvpCreating, setPvpCreating] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceFollowAction] = useState(true);
@@ -90,7 +92,6 @@ export default function Home() {
   const [showRaiseOptions, setShowRaiseOptions] = useState(false);
   const [winFx, setWinFx] = useState<{ text: string; winners: string[] } | null>(null);
   const [thinkingActorId, setThinkingActorId] = useState<string | null>(null);
-  const [autoChatFeed, setAutoChatFeed] = useState<Array<{ id: string; speaker: string; content: string }>>([]);
   const lastAutoTriggerRef = useRef("");
   const autoCooldownRef = useRef<number[]>([]);
   const tauntCooldownRef = useRef<number[]>([]);
@@ -100,6 +101,7 @@ export default function Home() {
   const nextStreetRef = useRef<() => Promise<void>>(async () => {});
   const lastProcessedActionRef = useRef("");
   const recordListRef = useRef<HTMLDivElement | null>(null);
+  const lastChatKeyRef = useRef("");
   const appliedPublicRolesRef = useRef(false);
   const voiceAbortRef = useRef<AbortController | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -360,7 +362,12 @@ export default function Home() {
     [voiceEnabled, voiceLevel]
   );
 
-  const speak = useCallback(async (speakerName: string, speakerId: string | null, text: string) => {
+  const speak = useCallback(async (
+    speakerName: string,
+    speakerId: string | null,
+    text: string,
+    opts?: { chatItem?: { id: string; speaker: string; content: string } }
+  ) => {
     if (!voiceEnabled) return;
     const t = (text ?? "").trim();
     if (!t) return;
@@ -369,6 +376,7 @@ export default function Home() {
     setVoicePlaying(true);
     const job = async () => {
       setVoiceError(null);
+      let chatPushed = false;
 
       const hardTimeoutMs = 15000;
       const hardTimer = window.setTimeout(() => {
@@ -420,6 +428,11 @@ export default function Home() {
             src.buffer = audioBuf;
             src.connect(ctx.destination);
             src.onended = () => resolve();
+            if (!chatPushed && opts?.chatItem) {
+              chatPushed = true;
+              // Push subtitle exactly when audio starts (1 subtitle = 1 utterance).
+              setChatLog((prev) => [...prev, opts.chatItem!]);
+            }
             src.start();
           });
           lastTtsAtRef.current = Date.now();
@@ -463,6 +476,30 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  const [chatLog, setChatLog] = useState<Array<{ id: string; speaker: string; content: string }>>([]);
+
+  useEffect(() => {
+    const latest = state.actions[0];
+    if (!latest) return;
+    if (latest.actor === "系统") return;
+    const text = (latest.text ?? "").trim();
+    if (!text) return;
+    const key = `${state.handId}|${latest.actor}|${latest.action}|${latest.amount}|${text}`;
+    if (lastChatKeyRef.current === key) return;
+    lastChatKeyRef.current = key;
+    if (!shouldSpeak(latest.actor, latest.action, latest.amount, state.stage, text)) return;
+    void speak(latest.actor, null, text, { chatItem: { id: `v_${key}`, speaker: latest.actor, content: text } });
+  }, [state.actions, state.handId]);
+
+  useEffect(() => {
+    const el = recordListRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceToBottom < 120) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+  }, [chatLog.length]);
 
   // Once we have visitor balance, rebuild the initial hand using that balance (avoids refresh resetting to 200).
   useEffect(() => {
@@ -536,6 +573,11 @@ export default function Home() {
     const n = arr.length;
     const humanIdx = arr.findIndex((p) => p.id === "human");
     if (humanIdx < 0 || n === 0) return arr;
+    if (n === 2) {
+      const humanP = arr.find((p) => p.id === "human") ?? arr[0];
+      const opp = arr.find((p) => p.id !== "human") ?? arr[1];
+      return [opp, humanP];
+    }
     const targetIdx = 3; // keep human at bottom-center seat
     const shift = (humanIdx - targetIdx + n) % n;
     return Array.from({ length: n }, (_, i) => arr[(i + shift) % n]);
@@ -621,18 +663,7 @@ ${aiBrief || "（无）"}
 最近行动：${lines.join(" | ") || "（无）"}`;
   }, [state.actions, state.handId, state.stage, state.pot, humanToCall, state.players]);
 
-  const groupChatFeed = useMemo(() => {
-    const items = [...state.actions]
-      .reverse()
-      .filter((a) => a.actor !== "系统" && Boolean(a.text))
-      .slice(-40)
-      .map((a, idx) => ({
-        id: `${state.handId}-${idx}-${a.actor}`,
-        speaker: a.actor,
-        content: a.text ?? "",
-      }));
-    return items;
-  }, [state.actions, state.handId]);
+  const groupChatFeed = chatLog;
 
   const pickTaunt = useCallback(
     (kind: "steal" | "maniac" | "station") => {
@@ -685,44 +716,7 @@ ${aiBrief || "（无）"}
     return out.trim();
   };
 
-  useEffect(() => {
-    // Optional taunt at human decision point when profile is clear.
-    if (!isHumanTurn || state.isHandOver) return;
-    const seatActor = state.players[state.toActIndex];
-    if (!seatActor?.isHuman) return;
-
-    const prof = state.humanProfile;
-    if (!prof) return;
-    const preflopHands = Math.max(1, (prof.preflopRaises ?? 0) + (prof.preflopCalls ?? 0) + (prof.preflopFolds ?? 0));
-    if (preflopHands < 10) return; // need enough signal
-
-    const raiseRate = (prof.preflopRaises ?? 0) / preflopHands;
-    const callRate = (prof.preflopCalls ?? 0) / preflopHands;
-    const allInRate = (prof.allIns ?? 0) / preflopHands;
-    const stealRate = (prof.stealsLatePos ?? 0) / Math.max(1, prof.preflopRaises ?? 0);
-
-    const isManiac = raiseRate > 0.42 || allInRate > 0.08;
-    const isStation = callRate > 0.48 && raiseRate < 0.35;
-    const isSteal = stealRate > 0.35 && raiseRate > 0.25;
-    const kind: "steal" | "maniac" | "station" | null = isManiac ? "maniac" : isSteal ? "steal" : isStation ? "station" : null;
-    if (!kind) return;
-
-    const now = Date.now();
-    tauntCooldownRef.current = tauntCooldownRef.current.filter((t) => now - t < 45_000);
-    const lastAt = tauntCooldownRef.current[tauntCooldownRef.current.length - 1] ?? 0;
-    if (now - lastAt < 25_000) return;
-    if (tauntCooldownRef.current.length >= 1) return;
-
-    // low frequency
-    if (Math.random() > 0.18) return;
-    tauntCooldownRef.current.push(now);
-
-    const speaker = "幂幂";
-    const content = pickTaunt(kind);
-    setAutoChatFeed((prev) => [...prev, { id: `taunt_${now}`, speaker, content }]);
-    // Speak it as well (still guarded by global TTS cooldown).
-    void speak(speaker, null, content);
-  }, [isHumanTurn, state.isHandOver, state.players, state.toActIndex, state.humanProfile, pickTaunt, speak, heroName]);
+  // (Removed) Auto taunt / unsolicited AI speaking.
 
   const lastActionByActor = useMemo(() => {
     const map = new Map<string, string>();
@@ -1134,6 +1128,18 @@ ${aiBrief || "（无）"}
     }
   };
 
+  const resetHandForMode = (mode: "6max" | "hu") => {
+    const players = createDefaultPlayers({ roles: publicRoles ?? undefined, mode }).map((p) =>
+      p.id === "human" ? { ...p, stack: Math.max(0, visitorBalance ?? 200) } : p
+    );
+    const next = createNewHand(1, players);
+    lastSyncedBalanceRef.current = visitorBalance ?? null;
+    syncState(next);
+    setHandId(1);
+    setChatLog([]);
+    lastChatKeyRef.current = "";
+  };
+
   return (
     <main className="mx-auto flex h-dvh w-full max-w-6xl flex-col overflow-y-auto bg-[#faf9f6] p-2 pb-36 text-[#1A1A1A] sm:min-h-screen sm:h-auto sm:p-4 sm:pb-4 lg:pb-4 lg:p-5">
       <div className="mb-2 shrink-0 rounded-xl bg-white/70 p-2.5 shadow-sm backdrop-blur-sm sm:mb-3 sm:rounded-xl sm:p-3 lg:p-3">
@@ -1151,6 +1157,37 @@ ${aiBrief || "（无）"}
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-lg bg-[#1A1A1A] px-3 text-xs text-white shadow-sm hover:bg-black/90"
+              disabled={!authUserId || !authToken || pvpCreating}
+              onClick={async () => {
+                if (!authUserId || !authToken) {
+                  setShowLoginPanel(true);
+                  setAuthMessage("");
+                  return;
+                }
+                setPvpCreating(true);
+                try {
+                  const resp = await fetch("/api/pvp/rooms", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${authToken}` },
+                  });
+                  const data = (await resp.json()) as { roomId?: string; error?: string };
+                  if (!resp.ok || !data.roomId) {
+                    setAuthMessage(data.error ?? "创建房间失败");
+                    setShowLoginPanel(true);
+                    return;
+                  }
+                  window.location.href = `/pvp/${data.roomId}`;
+                } finally {
+                  setPvpCreating(false);
+                }
+              }}
+            >
+              {pvpCreating ? "创建中…" : "房间单挑"}
+            </Button>
             {authUserId ? (
               <Button
                 type="button"
@@ -1310,14 +1347,17 @@ ${aiBrief || "（无）"}
                     </div>
                   </div>
                   {(() => {
-                    const ovalSlots = [
-                      "top-[5%] left-1/2 -translate-x-1/2",
-                      "top-[19%] right-[3%]",
-                      "bottom-[35%] right-[3%]",
-                      "bottom-[8%] left-1/2 -translate-x-1/2",
-                      "bottom-[35%] left-[3%]",
-                      "top-[19%] left-[3%]",
-                    ];
+                    const isHu = seats.length === 2;
+                    const ovalSlots = isHu
+                      ? ["top-[8%] left-1/2 -translate-x-1/2", "bottom-[8%] left-1/2 -translate-x-1/2"]
+                      : [
+                          "top-[5%] left-1/2 -translate-x-1/2",
+                          "top-[19%] right-[3%]",
+                          "bottom-[35%] right-[3%]",
+                          "bottom-[8%] left-1/2 -translate-x-1/2",
+                          "bottom-[35%] left-[3%]",
+                          "top-[19%] left-[3%]",
+                        ];
                     return seats.map((p, idx) => {
                       const seatIndex = seatIndexById.get(p.id) ?? -1;
                       const isToAct = seatIndex === state.toActIndex && !state.isHandOver;
@@ -1327,7 +1367,7 @@ ${aiBrief || "（无）"}
                       return (
                         <div
                           key={p.id}
-                          className={cn("absolute z-10 w-[4.6rem]", ovalSlots[idx])}
+                          className={cn("absolute z-10 w-[4.6rem]", ovalSlots[idx] ?? ovalSlots[ovalSlots.length - 1])}
                         >
                           <div className={cn(
                             "relative overflow-visible rounded-lg border text-[9px] leading-tight shadow-md transition-all",
@@ -1373,14 +1413,17 @@ ${aiBrief || "（无）"}
                     });
                   })()}
                   {(() => {
-                    const chipSlots = [
-                      "top-[24%] left-1/2 -translate-x-1/2",
-                      "top-[30%] right-[24%]",
-                      "bottom-[40%] right-[24%]",
-                      "bottom-[30%] left-1/2 -translate-x-1/2",
-                      "bottom-[40%] left-[24%]",
-                      "top-[30%] left-[24%]",
-                    ];
+                    const isHu = seats.length === 2;
+                    const chipSlots = isHu
+                      ? ["top-[30%] left-1/2 -translate-x-1/2", "bottom-[28%] left-1/2 -translate-x-1/2"]
+                      : [
+                          "top-[24%] left-1/2 -translate-x-1/2",
+                          "top-[30%] right-[24%]",
+                          "bottom-[40%] right-[24%]",
+                          "bottom-[30%] left-1/2 -translate-x-1/2",
+                          "bottom-[40%] left-[24%]",
+                          "top-[30%] left-[24%]",
+                        ];
                     return seats.map((p, idx) => {
                       const seatIndex = seatIndexById.get(p.id) ?? -1;
                       void seatIndex;
@@ -1389,7 +1432,7 @@ ${aiBrief || "（无）"}
                       return (
                         <div
                           key={`chip-${p.id}`}
-                          className={cn("pointer-events-none absolute z-10", chipSlots[idx])}
+                          className={cn("pointer-events-none absolute z-10", chipSlots[idx] ?? chipSlots[chipSlots.length - 1])}
                         >
                           <div className="flex items-center gap-1 px-0.5 py-0.5 text-[10px] font-semibold tabular-nums text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                             <span className="relative h-4 w-4">
@@ -1472,17 +1515,17 @@ ${aiBrief || "（无）"}
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex items-center justify-between border-b border-[#e9e5dc] px-3 py-1.5">
                 <span className="text-[11px] font-semibold text-[#1A1A1A]">群聊</span>
-                <span className="text-[10px] text-[#e4dbcd]">{[...groupChatFeed, ...autoChatFeed].length}条</span>
+                <span className="text-[10px] text-[#e4dbcd]">{groupChatFeed.length}条</span>
               </div>
               <div
                 className="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2 py-1.5 pb-2 [touch-action:pan-y]"
                 ref={recordListRef}
               >
-                {[...groupChatFeed, ...autoChatFeed].length === 0 ? (
+                {groupChatFeed.length === 0 ? (
                   <div className="py-4 text-center text-[10px] text-[#e4dbcd]">暂无消息</div>
                 ) : (
                   <div className="flex flex-col gap-1">
-                    {[...groupChatFeed, ...autoChatFeed].slice(-30).map((msg) => (
+                    {groupChatFeed.map((msg) => (
                       <div key={msg.id} className="flex items-start gap-1.5">
                         <div
                           className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
@@ -1510,7 +1553,25 @@ ${aiBrief || "（无）"}
                     gameContext={recordChatContext}
                     groupName="鱼桌"
                     memberCount={state.players.length}
-                    externalMessages={[...groupChatFeed, ...autoChatFeed].slice(-80)}
+                    externalMessages={groupChatFeed}
+                    onSend={async (text, gameContext) => {
+                      const now = Date.now();
+                      setChatLog((prev) => [...prev, { id: `u_${now}`, speaker: "你", content: text }]);
+
+                      const resp = await fetch("/api/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          messages: [{ id: `u_${now}`, role: "user", parts: [{ type: "text", text }] }],
+                          gameContext,
+                        }),
+                      });
+                      if (!resp.ok) throw new Error(`chat ${resp.status}`);
+                      const raw = await extractUiSseText(resp);
+                      const { speaker, content } = parseGroupSpeaker(raw);
+                      const key = `${now}_${speaker}_${content}`;
+                      void speak(speaker, null, content, { chatItem: { id: `ai_${key}`, speaker, content } });
+                    }}
                   />
                 </div>
               </div>

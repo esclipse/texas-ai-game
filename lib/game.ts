@@ -135,7 +135,7 @@ export function chatLogLabelAndColor(
   };
 }
 
-export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] {
+export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max" | "hu" }): Player[] {
   const primaryModel = "aliyun/Qwen3-Coder-Plus";
   const secondaryModel = "aliyun/Qwen3-Coder-32B-Instruct";
 
@@ -309,7 +309,14 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
   }
 
   const roles = opts?.roles ?? [];
-  if (!Array.isArray(roles) || roles.length === 0) return base;
+  const mode = opts?.mode ?? "6max";
+  const applyMode = (players: Player[]) => {
+    if (mode !== "hu") return players;
+    const keep = new Set(["human", "ai-1"]);
+    return players.filter((p) => keep.has(p.id));
+  };
+
+  if (!Array.isArray(roles) || roles.length === 0) return applyMode(base);
 
   const seats = ["ai-1", "ai-2", "ai-3", "ai-4", "ai-5"] as const;
   const roleBySeat = new Map<string, PublicRole>();
@@ -337,7 +344,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
     roleBySeat.set(remainingSeats[idx] as string, r);
   });
 
-  return base.map((p) => {
+  const withRoles = base.map((p) => {
     if (p.isHuman) return p;
     const r = roleBySeat.get(p.id);
     if (!r) return p;
@@ -352,6 +359,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[] }): Player[] 
       model: r.llmRef,
     };
   });
+  return applyMode(withRoles);
 }
 
 function nextActiveSeat(players: Player[], fromIndex: number): number {
