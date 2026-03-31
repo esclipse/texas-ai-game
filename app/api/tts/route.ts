@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getTtsConfig } from "@/lib/tts-config";
+import { debugLog } from "@/lib/debug-log";
 
 type Body = {
   text?: unknown;
@@ -29,6 +30,7 @@ function pickFormat(v: unknown): "mp3" | "wav" {
 }
 
 export async function POST(req: Request) {
+  debugLog("info", "tts", "start");
   const body = (await req.json()) as Body;
   const text = str(body.text).trim();
   if (!text) return NextResponse.json({ error: "Missing text" }, { status: 400 });
@@ -42,7 +44,10 @@ export async function POST(req: Request) {
   const resourceId = (speakerName ? cfg.resourceIdByName[speakerName] : "")?.trim() || cfg.resourceId;
   const format = pickFormat(body.format || cfg.format);
 
-  if (!cfg.apiKey) return NextResponse.json({ error: "Missing DOUBAO_TTS_API_KEY (or TTS_CONFIG_JSON.apiKey)" }, { status: 500 });
+  if (!cfg.apiKey) {
+    debugLog("error", "tts", "missing apiKey");
+    return NextResponse.json({ error: "Missing DOUBAO_TTS_API_KEY (or TTS_CONFIG_JSON.apiKey)" }, { status: 500 });
+  }
   if (!resourceId) return NextResponse.json({ error: "Missing DOUBAO_TTS_RESOURCE_ID (or TTS_CONFIG_JSON.resourceId)" }, { status: 500 });
   if (!speaker) return NextResponse.json({ error: "Missing speaker (or TTS_CONFIG_JSON.speaker)" }, { status: 400 });
 
@@ -76,6 +81,7 @@ export async function POST(req: Request) {
 
   if (!resp.ok) {
     const msg = await resp.text().catch(() => "");
+    debugLog("error", "tts", "upstream not ok", { status: resp.status, message: msg.slice(0, 160) });
     return NextResponse.json(
       {
         error: "TTS upstream error",
@@ -186,6 +192,7 @@ export async function POST(req: Request) {
 
     if (sawAnyAudio) {
       const bin = Buffer.concat(chunks);
+      debugLog("info", "tts", "ok", { bytes: bin.byteLength, speakerName, resourceId });
       return new Response(bin, {
         headers: {
           "Content-Type": format === "wav" ? "audio/wav" : "audio/mpeg",
@@ -198,6 +205,7 @@ export async function POST(req: Request) {
       speakerName && cfg.resourceIdByName[speakerName]
         ? ""
         : "Hint: set TTS_CONFIG_JSON.resourceIdByName[AI名] to match this speaker's resource pack (ICL voices often differ from 10029).";
+    debugLog("error", "tts", "unexpected json response", { speakerName, resourceId, lastObj });
     return NextResponse.json({ error: "Unexpected TTS JSON response", hint, speakerName, speaker, resourceId, data: lastObj }, { status: 502 });
   }
 

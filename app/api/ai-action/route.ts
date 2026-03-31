@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { aiDecision, type HandState, type Player } from "@/lib/game";
 import { getLlmConfig } from "@/lib/app-config";
 import { pickAiActionModelByAi, postChatCompletionsWithFallback } from "@/lib/llm/fallback";
+import { debugLog } from "@/lib/debug-log";
 
 const { providersForAiAction } = getLlmConfig();
 
@@ -66,6 +67,7 @@ function humanizeTableLine(raw: string, fallback: string) {
 }
 
 export async function POST(req: Request) {
+  debugLog("info", "ai-action", "start");
   const { state, ai, heroName, userMemoryHint } = (await req.json()) as RequestBody;
   const fallback = aiDecision(state, ai);
 
@@ -140,6 +142,7 @@ export async function POST(req: Request) {
     });
 
     if (!resp || !resp.ok) {
+      debugLog("warn", "ai-action", "llm fallback", { ai: ai.name, ok: resp?.ok ?? false });
       return NextResponse.json({ ...fallback, text: ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text });
     }
 
@@ -170,6 +173,7 @@ export async function POST(req: Request) {
       // Hard fallback to local line if model output is bad.
       return humanizeTableLine(baseFallback, baseFallback);
     })();
+    debugLog("info", "ai-action", "ok", { ai: ai.name, action: fallback.action, amount: fallback.amount, textLen: nextText.length });
 
     return NextResponse.json({
       // Make AI actions strong & consistent: action/amount are decided locally (rule-based),
@@ -179,6 +183,7 @@ export async function POST(req: Request) {
       text: nextText,
     });
   } catch {
+    debugLog("error", "ai-action", "exception");
     return NextResponse.json({ ...fallback, text: ai.name === "Z哥" ? pickZGeLine(fallback.action) : fallback.text });
   }
 }
