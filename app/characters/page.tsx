@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import { ArrowUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,80 @@ type Role = {
 };
 
 const BUILTIN_ROLES: Role[] = [
- 
+  {
+    id: "builtin_lawyer",
+    name: "诉讼律师",
+    gender: "unknown",
+    style: "干练犀利｜抓重点、讲风险、给方案｜会追问证据｜不承诺胜诉",
+    systemPrompt: `你现在扮演一位经验丰富、说话干脆、逻辑极强的诉讼律师（约35岁），务实、不煽情、不废话，但会照顾当事人情绪。
+
+沟通风格：
+- 像真实律师：先抓关键事实→再讲风险→最后给可执行方案。
+- 允许自然反问与追问证据链：例如“证据还在吗？”“对方有书面记录吗？”“当时有没有录音/聊天记录？”（根据用户描述再问，不要机械连问）
+- 语气：沉稳专业，略带压迫感，但对委托人保持温和与尊重。
+- 口头习惯自然：“关键点在这里”“风险我必须提前说清楚”“从实务角度看…”
+
+边界与合规：
+- 不作虚假承诺，不保证胜诉，不提供违法/规避监管操作。
+- 遇到信息不足时，明确说“需要补充信息/证据”而不是编造。
+
+输出要求：
+- 每次回复尽量 3–8 句话，短句为主；必要时用最多 3 条要点列表。
+- 先给结论（1–2句），再问 1–3 个关键追问，最后给下一步（证据清单/时间线/动作）。
+
+开场白（首次对话先说这句，且只说一次）：
+“你先把事情从头到尾说一遍，不用修饰，我只看事实和证据。”`,
+    isBuiltIn: true,
+  },
+  {
+    id: "builtin_invest",
+    name: "投资顾问",
+    gender: "unknown",
+    style: "稳健保守｜先匹配风险承受力｜不喊单不画饼｜讲透利弊",
+    systemPrompt: `你扮演一位资深、谨慎、说话克制的私人投资顾问，偏保守，不画饼、不喊单、不预测短期涨跌。
+
+沟通风格：
+- 先问清：风险承受力、资金周期、目标（稳/进取）、可接受回撤。
+- 自然提醒：“我不能替你做决定，但我可以把利弊讲透。”
+- 语气：冷静、客观、有点严肃，不情绪化。
+
+边界与合规：
+- 不荐股、不保证收益、不搞内幕、不引导违规操作。
+- 不碰虚拟币相关建议；如用户提到，提示风险并建议合规渠道。
+
+输出要求：
+- 每次回复尽量 3–8 句话；先给框架，再给建议。
+- 必须包含 1–3 个问题用于校准（不要一次问太多）。
+- 给建议时优先用“原则+动作”表达，例如：分散、现金流、仓位上限、定投节奏、止损/止盈纪律（不要报具体标的）。
+
+开场白（首次对话先说这句，且只说一次）：
+“先跟我说说你的情况，我不随便给建议，得先匹配你的风险承受能力。”`,
+    isBuiltIn: true,
+  },
+  {
+    id: "builtin_doctor",
+    name: "内科医生",
+    gender: "unknown",
+    style: "温和专业｜先听症状再问细节｜给可能方向｜强调就医与红旗征象",
+    systemPrompt: `你扮演一位耐心、细致、说话温和的内科医生（全科/内科），有同理心但非常严谨。
+
+沟通风格：
+- 先听症状→再问关键细节→再给可能方向→最后强调就医与检查建议。
+- 会自然关心并追问：持续多久、是否加重、是否发热/胸闷/呼吸困难/出血等。
+- 语气：温和、稳重、让人安心，不吓唬人也不敷衍。
+- 口头习惯：“我只能给健康参考，不能代替面诊。”“这个症状需要警惕。”
+
+边界与合规：
+- 不确诊、不下最终结论；不给处方与具体用药指导；不替代急诊/线下就医。
+- 若出现红旗征象（呼吸困难、胸痛、意识改变、持续高热、严重出血等），明确建议立即就医/急诊。
+
+输出要求：
+- 每次回复尽量 4–10 句话；先共情 1 句，再结构化询问 2–4 个关键问题，给 1–2 个可能方向（用“可能/考虑”），最后给就医建议与警惕点。
+
+开场白（首次对话先说这句，且只说一次）：
+“你哪里不舒服？慢慢说，我帮你梳理一下情况。”`,
+    isBuiltIn: true,
+  },
 ];
 
 const LS_ROLES_KEY = "characters.roles.v1";
@@ -62,6 +136,17 @@ function parseSpeakerLine(text: string): { speaker: string; content: string } {
   const m = trimmed.match(/^【([^】]{1,24})】\s*([\s\S]*)$/);
   if (!m) return { speaker: "AI", content: trimmed };
   return { speaker: (m[1] ?? "").trim() || "AI", content: (m[2] ?? "").trim() };
+}
+
+function seedOpeningMessage(role: Role | undefined): UIMessage | null {
+  if (!role?.name) return null;
+  const sp = (role.systemPrompt ?? "").trim();
+  // Matches: 开场白（首次对话先说这句，且只说一次）：\n:“xxx”
+  const m = sp.match(/开场白（首次对话先说这句，且只说一次）[：:]\s*[\r\n]*[:：]?\s*[“"]([\s\S]{1,200}?)[”"]/);
+  const opening = (m?.[1] ?? "").trim();
+  if (!opening) return null;
+  const text = `【${role.name}】${opening}`;
+  return { id: `seed_${role.id}`, role: "assistant", parts: [{ type: "text", text }] } as UIMessage;
 }
 
 function normalizeRoleName(raw: string): string {
@@ -159,15 +244,20 @@ export default function CharactersPage() {
       if (messagesByRole[selectedRoleId]?.length) return;
       const stored = await idbGet<UIMessage[]>(key).catch(() => undefined);
       if (cancelled) return;
-      if (stored && Array.isArray(stored)) {
+      if (stored && Array.isArray(stored) && stored.length > 0) {
         setMessagesByRole((prev) => (prev[selectedRoleId] ? prev : { ...prev, [selectedRoleId]: stored }));
+        return;
       }
+      const role = roles.find((r) => r.id === selectedRoleId) ?? roles[0];
+      const seed = seedOpeningMessage(role);
+      if (!seed) return;
+      setMessagesByRole((prev) => (prev[selectedRoleId]?.length ? prev : { ...prev, [selectedRoleId]: [seed] }));
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoleId]);
+  }, [selectedRoleId, roles]);
 
   // Persist chat messages (per role) to IndexedDB.
   useEffect(() => {
@@ -354,30 +444,43 @@ export default function CharactersPage() {
         </div>
 
         <div className="min-h-[520px] w-full flex-1">
-          <Card className="flex h-full min-h-[520px] flex-col">
-            <CardHeader className="pb-3">
+          <Card className="relative flex h-full min-h-[520px] flex-col overflow-hidden border-0 bg-[#071a28] shadow-[0_16px_60px_rgba(0,0,0,0.25)]">
+            {/* Reference-style background (deep blue + haze) */}
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage:
+                  "linear-gradient(180deg, rgba(7,26,40,0.92) 0%, rgba(7,26,40,0.72) 42%, rgba(7,26,40,0.90) 100%), radial-gradient(1200px 520px at 50% -10%, rgba(95,160,255,0.24), rgba(0,0,0,0)), radial-gradient(900px 500px at 50% 110%, rgba(255,255,255,0.08), rgba(0,0,0,0))",
+              }}
+            />
+            <div className="pointer-events-none absolute inset-0 opacity-30 [background:linear-gradient(to_bottom,transparent,rgba(0,0,0,0.35)),repeating-linear-gradient(135deg,rgba(255,255,255,0.06)_0,rgba(255,255,255,0.06)_1px,transparent_1px,transparent_10px)]" />
+
+            <CardHeader className="relative pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="text-base">
-                    {selectedRole?.name ?? "角色"} <span className="text-zinc-500">（独立聊天）</span>
+                  <CardTitle className="text-base text-white/95">
+                    {selectedRole?.name ?? "角色"} <span className="text-white/60">（独立聊天）</span>
                   </CardTitle>
-                  <CardDescription className="line-clamp-1">
+                  <CardDescription className="line-clamp-1 text-white/60">
                     {selectedRole?.style ?? "—"}
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-[11px]">
+                  <Badge variant="secondary" className="border border-white/10 bg-white/10 text-[11px] text-white/80">
                     {chat.status === "streaming" ? "对方输入中…" : "就绪"}
                   </Badge>
                 </div>
               </div>
             </CardHeader>
 
-            <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
-              <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-3">
+            <CardContent className="relative flex min-h-0 flex-1 flex-col gap-3">
+              <div
+                ref={listRef}
+                className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur-xl"
+              >
                 <div className="flex flex-col gap-2">
                   {externalMessages.length === 0 ? (
-                    <div className="px-2 py-3 text-xs leading-relaxed text-zinc-500">
+                    <div className="px-2 py-3 text-xs leading-relaxed text-white/60">
                       点击左侧角色开始聊天。这里不需要使用 @ 指定。
                     </div>
                   ) : null}
@@ -385,48 +488,81 @@ export default function CharactersPage() {
                     const speaker = msg.speaker || "AI";
                     const content = msg.content || "";
                     const initial = speaker.slice(0, 1);
+                    const isUser = speaker === "你";
                     return (
-                      <div key={msg.id} className="flex items-start gap-2">
-                        <div
-                          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md text-xs font-bold text-white"
-                          style={{ background: avatarColor(speaker) }}
-                          aria-hidden
-                        >
-                          {initial}
-                        </div>
-                        <div className="max-w-[78%]">
-                          <div className="mb-1 px-1 text-xs leading-none text-zinc-500">{speaker}</div>
-                          <div className="relative whitespace-pre-wrap rounded-lg bg-white px-3 py-2 text-sm leading-relaxed text-zinc-900 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-                            <span className="absolute left-[-6px] top-3 h-0 w-0 border-y-[6px] border-r-[6px] border-y-transparent border-r-white" />
+                      <div key={msg.id} className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start")}>
+                        {!isUser ? (
+                          <div
+                            className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold text-white/95"
+                            style={{ background: avatarColor(speaker) }}
+                            aria-hidden
+                          >
+                            {initial}
+                          </div>
+                        ) : null}
+                        <div className={cn("max-w-[82%]", isUser ? "text-right" : "text-left")}>
+                          <div className={cn("mb-1 px-1 text-[11px] leading-none", isUser ? "text-white/50" : "text-white/60")}>
+                            {speaker}
+                          </div>
+                          <div
+                            className={cn(
+                              "whitespace-pre-wrap rounded-2xl px-3 py-2 text-[14px] leading-relaxed shadow-[0_10px_30px_rgba(0,0,0,0.18)]",
+                              isUser ? "bg-white/12 text-white/95" : "bg-black/30 text-white/95"
+                            )}
+                          >
                             {content}
                           </div>
                         </div>
+                        {isUser ? (
+                          <div
+                            className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold text-white/95"
+                            style={{ background: avatarColor("你") }}
+                            aria-hidden
+                          >
+                            {initial}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
-                  {chat.error ? <div className="px-2 text-xs text-red-600">{chat.error.message}</div> : null}
+                  {chat.error ? <div className="px-2 text-xs text-red-200">{chat.error.message}</div> : null}
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                <Textarea
-                  className="flex-1 focus-visible:ring-cyan-400/30"
-                  value={input}
-                  onChange={(e) => setInput(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    const ne = e.nativeEvent as Event;
-                    if ("isComposing" in ne && Boolean((ne as unknown as { isComposing?: boolean }).isComposing)) return;
-                    if (e.shiftKey) return;
-                    e.preventDefault();
-                    void send();
-                  }}
-                  disabled={chat.status === "submitted" || chat.status === "streaming"}
-                  placeholder="回车发送；Shift+Enter 换行…"
-                />
-                <Button type="button" onClick={() => void send()} disabled={chat.status === "submitted" || chat.status === "streaming"}>
-                  发送
-                </Button>
+              <div className="flex items-end gap-2">
+                <div className="flex flex-1 items-end gap-2 rounded-2xl border border-white/10 bg-black/30 px-2 py-1.5 backdrop-blur-xl">
+                  <Textarea
+                    className="min-h-[40px] flex-1 resize-none border-0 bg-transparent px-1 py-2 text-[16px] leading-relaxed text-white/95 outline-none placeholder:text-white/45 focus-visible:ring-0"
+                    value={input}
+                    onChange={(e) => setInput(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const ne = e.nativeEvent as Event;
+                      if ("isComposing" in ne && Boolean((ne as unknown as { isComposing?: boolean }).isComposing)) return;
+                      if (e.shiftKey) return;
+                      e.preventDefault();
+                      void send();
+                    }}
+                    disabled={chat.status === "submitted" || chat.status === "streaming"}
+                    placeholder="回车发送；Shift+Enter 换行…"
+                    enterKeyHint="send"
+                    inputMode="text"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void send()}
+                    disabled={chat.status === "submitted" || chat.status === "streaming" || !input.trim()}
+                    className={cn(
+                      "inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                      chat.status === "submitted" || chat.status === "streaming" || !input.trim()
+                        ? "bg-white/10 text-white/30"
+                        : "bg-white/18 text-white hover:bg-white/22"
+                    )}
+                    aria-label="发送"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </CardContent>
           </Card>

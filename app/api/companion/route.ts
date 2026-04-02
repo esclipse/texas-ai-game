@@ -19,10 +19,11 @@ type Snapshot = {
 };
 
 type RequestBody = {
-  kind?: "turn" | "after_action" | "showdown";
+  kind?: "turn" | "after_action" | "showdown" | "welcome" | "manual";
   companion?: Companion;
   snapshot?: Snapshot;
   systemPrompt?: string; // optional override
+  userMessage?: string; // for kind=manual
 };
 
 function tightenCompanionText(raw: string) {
@@ -75,6 +76,8 @@ export async function POST(req: Request) {
 要求：
 1) 输出必须短：只写 1–2 句中文，总字数 ≤120。不要寒暄、不要讲大道理、不要反问、不要复读局势原文。
 2) 语气有情绪但保持得体：能夸就夸；用户上头/乱来要不爽并提醒。
+2.1) kind=welcome：用户刚进入游戏，给一句欢迎/陪伴宣言 + 一句“怎么开始/怎么问我”的最短引导（不超过12字），不要问问题、不要输出玩法教学长文。
+2.2) kind=manual：用户主动发来一句话/问题，你只需针对这句话给“最短回应 + 最短建议”，不要反问，不要长篇解释。
 3) kind=turn：给一句稳健行动建议（fold/call/raise 的倾向要明确，理由极短）。
 4) kind=after_action：对用户刚才行动做情绪反馈（夸奖/质疑/不爽），顺带一句提醒。
 5) kind=showdown：对结果给情绪反馈 + 一句复盘方向（极短）。
@@ -98,6 +101,7 @@ kind=${kind}
 - handId=${snap.handId ?? "-"} stage=${snap.stage ?? "-"} isHandOver=${snap.isHandOver ? "yes" : "no"}
 - pot=${snap.pot ?? "-"}bb currentBet=${snap.currentBet ?? "-"}bb toCall=${snap.toCall ?? "-"}bb heroStack=${snap.heroStack ?? "-"}bb
 - recentActions=${snap.recentActions ?? "（无）"}
+${typeof body.userMessage === "string" && body.userMessage.trim() ? `\n用户对你说：${body.userMessage.trim().slice(0, 240)}` : ""}
 `.trim();
 
   let lastErr: unknown = null;

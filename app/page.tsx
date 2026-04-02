@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Coins, Loader2, RefreshCcw, UserRound } from "lucide-react";
+import { ArrowUp, Coins, Loader2, RefreshCcw, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,8 @@ export default function Home() {
   const [sfxEnabled] = useState(true);
   const [raiseMode, setRaiseMode] = useState<"min" | "2x" | "3x" | "allin">("min");
   const [showRaiseOptions, setShowRaiseOptions] = useState(false);
+  const [showMobileCompanionPicker, setShowMobileCompanionPicker] = useState(false);
+  const [companionDraft, setCompanionDraft] = useState("");
   const [winFx, setWinFx] = useState<{ text: string; winners: string[] } | null>(null);
   const [collectChips, setCollectChips] = useState<
     Array<{ id: string; sx: number; sy: number; ex: number; ey: number; delayMs: number }>
@@ -527,6 +530,7 @@ export default function Home() {
   }, []);
 
   const COMPANION_SELECTED_KEY = "companion.selectedRoleId.v1";
+  const COMPANION_WELCOME_KEY = "companion.welcome.v1";
   const CHARACTERS_ROLES_KEY = "characters.roles.v1";
   const defaultCompanions = useMemo(
     () => [
@@ -636,12 +640,20 @@ export default function Home() {
   }, []);
 
   const requestCompanion = useCallback(
-    async (kind: "turn" | "after_action" | "showdown", opts?: { force?: boolean }) => {
+    async (
+      kind: "turn" | "after_action" | "showdown" | "welcome" | "manual",
+      opts?: { force?: boolean; userMessage?: string }
+    ) => {
       const c = selectedCompanion;
       if (!c?.name) return;
 
       const latest = stateRef.current.actions[0];
-      const baseKey = `${stateRef.current.handId}|${stateRef.current.stage}|${kind}|${latest?.actor ?? "-"}|${latest?.action ?? "-"}|${latest?.amount ?? 0}`;
+      const baseKey =
+        kind === "welcome"
+          ? `welcome|${c.id ?? c.name}`
+          : kind === "manual"
+            ? `manual|${c.id ?? c.name}|${(opts?.userMessage ?? "").trim().slice(0, 80)}`
+          : `${stateRef.current.handId}|${stateRef.current.stage}|${kind}|${latest?.actor ?? "-"}|${latest?.action ?? "-"}|${latest?.amount ?? 0}`;
       const key = opts?.force ? `${baseKey}|manual|${Date.now()}` : baseKey;
       if (!opts?.force && lastCompanionKeyRef.current === key) return;
       lastCompanionKeyRef.current = key;
@@ -655,6 +667,7 @@ export default function Home() {
         kind,
         companion: { id: c.id, name: c.name, gender: c.gender, style: c.style },
         systemPrompt: c.systemPrompt,
+        userMessage: opts?.userMessage,
         snapshot: {
           handId: stateRef.current.handId,
           stage: stateRef.current.stage,
@@ -695,6 +708,24 @@ export default function Home() {
     },
     [selectedCompanion, speak]
   );
+
+  useEffect(() => {
+    // One-time welcome message when user first enters (per day, per device).
+    const userKey = authUserId ?? visitorId;
+    if (!userKey) return;
+    if (visitorInitDone === false && !authUserId) return;
+    if (chatLog.length > 0) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const stored = globalThis.localStorage?.getItem(COMPANION_WELCOME_KEY) ?? "";
+      const expected = `${today}|${userKey}|${selectedCompanionId}`;
+      if (stored === expected) return;
+      globalThis.localStorage?.setItem(COMPANION_WELCOME_KEY, expected);
+      void requestCompanion("welcome", { force: true });
+    } catch {
+      // ignore
+    }
+  }, [authUserId, chatLog.length, requestCompanion, selectedCompanionId, visitorId, visitorInitDone]);
 
   // (Removed) Table AI auto speaking subtitles from betting actions.
 
@@ -1750,7 +1781,26 @@ export default function Home() {
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex items-center justify-between border-b border-[#e9e5dc] px-3 py-1.5">
                 <span className="text-[11px] font-semibold text-[#1A1A1A]">陪伴</span>
-                <span className="text-[10px] text-[#e4dbcd]">{chatLog.length}条</span>
+                <div className="flex items-center gap-1.5">
+                  <Link
+                    href="/characters"
+                    className="inline-flex h-7 items-center justify-center rounded-md border border-[#e9e5dc] bg-white px-2 text-[10px] font-semibold uppercase tracking-wide text-[#1A1A1A] shadow-sm transition-colors hover:bg-[#faf9f6]"
+                    title="去角色扮演"
+                    aria-label="去角色扮演"
+                  >
+                    roleplay
+                  </Link>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center justify-center rounded-md border border-[#e9e5dc] bg-white px-2 text-[10px] font-semibold text-[#1A1A1A] shadow-sm transition-colors hover:bg-[#faf9f6]"
+                    onClick={() => setShowMobileCompanionPicker(true)}
+                    aria-label="选择陪伴角色"
+                    title="选择陪伴角色"
+                  >
+                    {selectedCompanion?.name ?? "选角色"}
+                  </button>
+                  <span className="text-[10px] text-[#e4dbcd]">{chatLog.length}条</span>
+                </div>
               </div>
               <div
                 className="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2 py-1.5 pb-2 [touch-action:pan-y]"
@@ -1784,19 +1834,29 @@ export default function Home() {
             <CardContent className="flex flex-1 flex-col px-3 pb-3 pt-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold text-[#1A1A1A]">陪伴AI</div>
-                <div className="w-40">
-                  <Select value={selectedCompanionId} onValueChange={(v) => setSelectedCompanionId(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择陪伴AI" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {companionOptions.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-1.5">
+                  <Link
+                    href="/characters"
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+                    title="去角色扮演"
+                    aria-label="去角色扮演"
+                  >
+                    roleplay
+                  </Link>
+                  <div className="w-32">
+                    <Select value={selectedCompanionId} onValueChange={(v) => setSelectedCompanionId(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="选择陪伴AI" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {companionOptions.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               <div className="mt-1 text-[11px] text-zinc-500">
@@ -1830,14 +1890,42 @@ export default function Home() {
               </div>
 
               <div className="mt-2 flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => void requestCompanion("turn", { force: true })}
-                  disabled={companionBusy}
-                >
-                  问陪伴AI
-                </Button>
+                <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5">
+                  <input
+                    value={companionDraft}
+                    onChange={(e) => setCompanionDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const msg = companionDraft.trim();
+                      if (!msg || companionBusy) return;
+                      setCompanionDraft("");
+                      void requestCompanion("manual", { force: true, userMessage: msg });
+                    }}
+                    placeholder="跟陪伴聊一句…"
+                    className="h-9 min-w-0 flex-1 bg-transparent px-1 text-[16px] text-zinc-900 outline-none placeholder:text-zinc-400"
+                    enterKeyHint="send"
+                    inputMode="text"
+                  />
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+                      companionBusy || !companionDraft.trim()
+                        ? "bg-zinc-100 text-zinc-300"
+                        : "bg-[#d97757] text-white hover:opacity-90"
+                    )}
+                    disabled={companionBusy || !companionDraft.trim()}
+                    onClick={() => {
+                      const msg = companionDraft.trim();
+                      if (!msg) return;
+                      setCompanionDraft("");
+                      void requestCompanion("manual", { force: true, userMessage: msg });
+                    }}
+                    aria-label="发送"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
                 <Button
                   variant="outline"
                   className="flex-1"
@@ -1939,6 +2027,36 @@ export default function Home() {
               {opt.label}
             </button>
           ))}
+        </div>
+      )}
+      {showMobileCompanionPicker && (
+        <div
+          className="fixed inset-0 z-40 md:hidden"
+          onClick={() => setShowMobileCompanionPicker(false)}
+          aria-hidden="true"
+        />
+      )}
+      {showMobileCompanionPicker && (
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-1/2 z-50 w-[96%] max-w-[420px] -translate-x-1/2 rounded-2xl border border-[#e9e5dc] bg-white/95 p-2 shadow-xl backdrop-blur-xl md:hidden">
+          <div className="mb-1 px-1 text-[11px] font-semibold text-[#1A1A1A]">选择陪伴角色</div>
+          <div className="max-h-[42vh] overflow-y-auto overscroll-contain">
+            {companionOptions.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCompanionId(c.id);
+                  setShowMobileCompanionPicker(false);
+                }}
+                className={cn(
+                  "mb-1 w-full rounded-xl px-3 py-2.5 text-left text-[12px] font-bold last:mb-0 transition-colors",
+                  c.id === selectedCompanionId ? "bg-[#d97757] text-white" : "bg-[#faf9f6] text-[#1A1A1A] hover:bg-[#f1ede6]"
+                )}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {showLoginPanel && (
