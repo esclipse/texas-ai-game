@@ -855,6 +855,82 @@ function preflopHandScore(cards: string[] = []): number {
   return score;
 }
 
+function fullDeck52(): string[] {
+  const deck: string[] = [];
+  for (const suit of SUITS) {
+    for (const rank of RANKS) {
+      deck.push(`${rank}${suit}`);
+    }
+  }
+  return deck;
+}
+
+function remainingUnknownCards(state: HandState): string[] {
+  const known = new Set<string>();
+  for (const b of state.board) known.add(b);
+  for (const hole of Object.values(state.holeCards ?? {})) {
+    for (const c of hole ?? []) known.add(c);
+  }
+  return fullDeck52().filter((c) => !known.has(c));
+}
+
+function pickNRandomDistinct<T>(arr: T[], n: number): T[] {
+  if (n <= 0) return [];
+  if (n >= arr.length) return [...arr];
+  // Partial Fisher–Yates: O(n)
+  const a = [...arr];
+  for (let i = 0; i < n; i += 1) {
+    const j = i + Math.floor(Math.random() * (a.length - i));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, n);
+}
+
+function estimateWinRateHard(state: HandState, ai: Player, samples = 140): number {
+  // No runout peeking: sample from unknown cards only.
+  // Supports HU/6max; uses pokersolver at showdown.
+  const contenders = state.players.filter((p) => p.inHand);
+  if (contenders.length <= 1) return 1;
+  const unknown = remainingUnknownCards(state);
+  const need = Math.max(0, 5 - state.board.length);
+  if (need > unknown.length) return 0.5;
+
+  type SolverHand = { name: string; descr: string; rank: number };
+  type SolverApi = { solve: (cards: string[]) => SolverHand; winners: (hands: SolverHand[]) => SolverHand[] };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const solver = require("pokersolver") as { Hand: SolverApi };
+  const toSolverCard = (card: string) => `${card[0]}${card[1].toLowerCase()}`;
+
+  let wins = 0;
+  let ties = 0;
+  const loops = Math.max(40, Math.min(260, Math.floor(samples)));
+
+  for (let t = 0; t < loops; t += 1) {
+    const runout = need > 0 ? pickNRandomDistinct(unknown, need) : [];
+    const board = [...state.board, ...runout].slice(0, 5);
+
+    const solvedHands: Array<{ id: string; hand: SolverHand }> = [];
+    for (const p of contenders) {
+      const hole = state.holeCards[p.id] ?? [];
+      const seven = [...hole, ...board].map(toSolverCard);
+      if (seven.length !== 7) continue;
+      solvedHands.push({ id: p.id, hand: solver.Hand.solve(seven) });
+    }
+    if (solvedHands.length <= 1) {
+      wins += 1;
+      continue;
+    }
+    const winners = solver.Hand.winners(solvedHands.map((x) => x.hand));
+    const winnerIds = solvedHands.filter((x) => winners.includes(x.hand)).map((x) => x.id);
+    if (winnerIds.includes(ai.id)) {
+      if (winnerIds.length === 1) wins += 1;
+      else ties += 1;
+    }
+  }
+
+  return (wins + ties * 0.5) / loops;
+}
+
 export function aiDecision(state: HandState, ai: Player): { action: ActionType; amount: number; text: string } {
   const inferred = detectStyleByRecentActions(state.actions);
   const toCall = Math.max(0, state.currentBet - ai.currentBet);
@@ -898,21 +974,23 @@ export function aiDecision(state: HandState, ai: Player): { action: ActionType; 
     return hands.some((x) => x.id === ai.id && winners.includes(x.hand));
   })();
 
-  // Betting decision: be tight when behind, press when ahead.
-  // Keep behavior somewhat "human" by mixing small randomness and respecting raise caps.
+  // Betting decision (exploit / ruthless):
+  // - press hard when ahead
+  // - avoid donating chips when behind
+  // - still respect raise caps to keep game progression stable
   let action: ActionType = toCall > 0 ? "call" : "check";
   let amount = 0;
 
   const raiseCapReached = state.raiseCountThisRound >= 3;
   const pot = Math.max(0, state.pot);
-  const potRaise = Math.max(minRaise, Math.min(12, Math.floor(pot * 0.35)));
+  const potRaise = Math.max(minRaise, Math.min(22, Math.floor(pot * 0.6)));
 
   if (raiseCapReached) {
     action = toCall > 0 ? "call" : "check";
     amount = 0;
   } else if (aiIsAheadAtShowdown) {
-    // When ahead, raise more often (pressure) but avoid always raising to look less robotic.
-    const raiseChance = state.stage === "preflop" ? 0.65 : 0.78;
+    // When ahead, apply maximum pressure (almost always).
+    const raiseChance = state.stage === "preflop" ? 0.92 : 0.97;
     if (Math.random() < raiseChance && ai.stack > toCall + minRaise) {
       action = "raise";
       amount = potRaise;
@@ -928,7 +1006,7 @@ export function aiDecision(state: HandState, ai: Player): { action: ActionType; 
     const defendScore = widenDefense ? 24 : 30;
     const canDefend = cheap || handScore >= defendScore;
     if (toCall > 0) {
-      const baseCall = widenDefense ? 0.36 : 0.22;
+      const baseCall = widenDefense ? 0.26 : 0.14;
       action = canDefend && Math.random() < baseCall ? "call" : "fold";
       amount = 0;
     } else {
@@ -939,10 +1017,91 @@ export function aiDecision(state: HandState, ai: Player): { action: ActionType; 
 
   // Extra exploit layer: punish calling-station by value-raising more often when cheap.
   const isCallingStation = humanCallRate > 0.48 && humanRaiseRate < 0.35;
-  if (!raiseCapReached && !aiIsAheadAtShowdown && isCallingStation && toCall === 0 && state.stage !== "preflop") {
-    if (Math.random() < 0.22 && ai.stack > minRaise) {
+  // If human is a calling-station, shift from bluffing to thinner value when we're ahead.
+  if (!raiseCapReached && aiIsAheadAtShowdown && isCallingStation && toCall === 0 && state.stage !== "preflop") {
+    if (Math.random() < 0.35 && ai.stack > minRaise) {
       action = "raise";
-      amount = Math.max(minRaise, Math.min(10, Math.floor(pot * 0.45)));
+      amount = Math.max(minRaise, Math.min(18, Math.floor(pot * 0.75)));
+    }
+  }
+
+  return {
+    action,
+    amount: action === "raise" ? amount || minRaise : 0,
+    text: generateEmotionLine(ai, state.stage, inferred, state.actions),
+  };
+}
+
+export function aiDecisionHard(state: HandState, ai: Player): { action: ActionType; amount: number; text: string } {
+  const inferred = detectStyleByRecentActions(state.actions);
+  const toCall = Math.max(0, state.currentBet - ai.currentBet);
+  const minRaise = Math.max(2, state.lastRaiseSize);
+  const raiseCapReached = state.raiseCountThisRound >= 3;
+
+  const profile = state.humanProfile;
+  const preflopHands = profile ? Math.max(1, profile.preflopRaises + profile.preflopCalls + profile.preflopFolds) : 1;
+  const humanRaiseRate = profile ? profile.preflopRaises / preflopHands : 0.28;
+  const humanAllInRate = profile ? profile.allIns / preflopHands : 0.03;
+  const humanCallRate = profile ? profile.preflopCalls / preflopHands : 0.32;
+
+  const pot = Math.max(0, state.pot);
+  const potOdds = toCall > 0 ? toCall / Math.max(1, pot + toCall) : 0;
+
+  // Exploit knobs from human profile:
+  const isCallingStation = humanCallRate > 0.48 && humanRaiseRate < 0.35;
+  const isManiac = humanRaiseRate > 0.42 || humanAllInRate > 0.08;
+
+  // Equity estimate without runout peeking.
+  const baseSamples = state.stage === "preflop" ? 120 : state.stage === "flop" ? 150 : 170;
+  const winRate = estimateWinRateHard(state, ai, baseSamples);
+
+  // Convert to aggression intent.
+  // Against calling-station: value bet thinner (raise with slightly lower equity).
+  // Against maniac: defend a bit wider but avoid huge spew.
+  const valueThreshold = isCallingStation ? 0.52 : 0.56;
+  const bluffThreshold = isCallingStation ? 0.33 : 0.29;
+  const defendThreshold = isManiac ? Math.max(potOdds, 0.22) : Math.max(potOdds, 0.26);
+
+  // Bet sizing: bigger when value, smaller when bluff/pressure.
+  const valueRaise = Math.max(minRaise, Math.min(20, Math.floor(pot * 0.7)));
+  const pressureRaise = Math.max(minRaise, Math.min(14, Math.floor(pot * 0.45)));
+
+  let action: ActionType = toCall > 0 ? "call" : "check";
+  let amount = 0;
+
+  if (raiseCapReached) {
+    action = toCall > 0 ? "call" : "check";
+    amount = 0;
+  } else if (toCall > 0) {
+    // Facing a bet: fold / call / raise based on equity vs pot odds.
+    if (winRate >= Math.max(valueThreshold, potOdds + 0.08) && ai.stack > toCall + minRaise) {
+      action = "raise";
+      amount = valueRaise;
+    } else if (winRate >= defendThreshold) {
+      action = "call";
+      amount = 0;
+    } else {
+      action = "fold";
+      amount = 0;
+    }
+  } else {
+    // No bet to face: choose value/pressure/check.
+    if (winRate >= valueThreshold && ai.stack > minRaise) {
+      action = "raise";
+      amount = valueRaise;
+    } else if (winRate >= bluffThreshold && !isCallingStation && ai.stack > minRaise) {
+      // Apply pressure mostly vs non-calling-station.
+      const p = state.stage === "preflop" ? 0.25 : 0.32;
+      if (Math.random() < p) {
+        action = "raise";
+        amount = pressureRaise;
+      } else {
+        action = "check";
+        amount = 0;
+      }
+    } else {
+      action = "check";
+      amount = 0;
     }
   }
 

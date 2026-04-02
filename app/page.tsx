@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   applyActionToState,
   aiDecision,
+  aiDecisionHard,
   createDefaultPlayers,
   createNewHand,
   type ActionType,
@@ -56,6 +57,12 @@ export default function Home() {
   const hasSupabaseEnv =
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) && Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
+  // AI strength switch (client-side):
+  // - "evil" (default): use local perfect-information bot (fast, ruthless)
+  // - "llm": use /api/ai-action (more human, less consistent)
+  // - "hard": local bot but slightly more human (reserved for later)
+  const AI_STRENGTH = (process.env.NEXT_PUBLIC_AI_STRENGTH ?? "evil").toLowerCase();
+
   const extractPvpRoomId = (raw: string) => {
     const s = (raw ?? "").trim();
     if (!s) return "";
@@ -98,6 +105,7 @@ export default function Home() {
   const [pvpCreating, setPvpCreating] = useState(false);
   const [pvpJoinInput, setPvpJoinInput] = useState("");
   const [pvpJoining, setPvpJoining] = useState(false);
+  const [showPvpJoinPanel, setShowPvpJoinPanel] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceFollowAction] = useState(true);
@@ -610,6 +618,7 @@ export default function Home() {
 
   const [chatLog, setChatLog] = useState<Array<{ id: string; speaker: string; content: string }>>([]);
   const lastCompanionKeyRef = useRef<string>("");
+  const lingbaoLastStreetKeyRef = useRef<string>("");
   const [companionBusy, setCompanionBusy] = useState(false);
 
   useEffect(() => {
@@ -665,6 +674,15 @@ export default function Home() {
       const c = selectedCompanion;
       if (!c?.name) return;
 
+      // Throttle Lingbao auto-tips: at most once per street (preflop/flop/turn/river) per hand.
+      // Keep "manual" (user asks) and "welcome" unaffected.
+      const isLingbao = c.id === "comp_lingbao";
+      const isAuto = kind !== "manual" && kind !== "welcome";
+      const streetKey = `${stateRef.current.handId}|${stateRef.current.stage}`;
+      const applyLingbaoStreetThrottle = isLingbao && isAuto;
+      if (applyLingbaoStreetThrottle && lingbaoLastStreetKeyRef.current === streetKey) return;
+      if (applyLingbaoStreetThrottle) lingbaoLastStreetKeyRef.current = streetKey;
+
       const latest = stateRef.current.actions[0];
       const baseKey =
         kind === "welcome"
@@ -706,12 +724,14 @@ export default function Home() {
           body: JSON.stringify(payload),
         });
         if (!resp.ok) {
+          if (applyLingbaoStreetThrottle) lingbaoLastStreetKeyRef.current = "";
           setChatLog((prev) => [...prev.slice(-30), { id: `c_${Date.now()}`, speaker: c.name, content: "我这会儿卡住了，稍后再问。" }]);
           return;
         }
         const data = (await resp.json()) as { text?: string };
         const text = (data.text ?? "").trim();
         if (!text) {
+          if (applyLingbaoStreetThrottle) lingbaoLastStreetKeyRef.current = "";
           setChatLog((prev) => [...prev.slice(-30), { id: `c_${Date.now()}`, speaker: c.name, content: "我暂时没想法，你先稳一点。" }]);
           return;
         }
@@ -719,6 +739,7 @@ export default function Home() {
         setChatLog((prev) => [...prev.slice(-30), { id, speaker: c.name, content: text }]);
         void speak(c.ttsName ?? c.name, null, text);
       } catch {
+        if (applyLingbaoStreetThrottle) lingbaoLastStreetKeyRef.current = "";
         setChatLog((prev) => [...prev.slice(-30), { id: `c_${Date.now()}`, speaker: c.name, content: "网络不太稳，等会再问我。" }]);
       } finally {
         setCompanionBusy(false);
@@ -999,7 +1020,9 @@ export default function Home() {
   };
 
   const requestAiAction = async (currentState: typeof state, ai: Player) => {
-    const localFallback = aiDecision(currentState, ai);
+    const localFallback =
+      AI_STRENGTH === "hard" ? aiDecisionHard(currentState, ai) : aiDecision(currentState, ai);
+    if (AI_STRENGTH !== "llm") return localFallback;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 9000);
@@ -1432,6 +1455,18 @@ export default function Home() {
                 {pvpJoining ? "加入中…" : "加入房间"}
               </Button>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A] lg:hidden"
+              disabled={pvpJoining}
+              onClick={() => {
+                setShowPvpJoinPanel(true);
+              }}
+            >
+              加入房间
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -2004,39 +2039,6 @@ export default function Home() {
       </div>
       <div className="fixed bottom-0 left-1/2 z-40 w-[96%] -translate-x-1/2 pb-[env(safe-area-inset-bottom)] md:hidden">
         <div className="rounded-2xl border border-[#e9e5dc] bg-white/95 p-2 shadow-[0_-4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl">
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <input
-              value={pvpJoinInput}
-              onChange={(e) => setPvpJoinInput(e.target.value)}
-              placeholder="房间号 / 链接"
-              className="h-9 min-w-0 flex-1 rounded-xl border border-[#e9e5dc] bg-white px-3 text-[13px] text-[#1A1A1A] shadow-sm outline-none placeholder:text-[#e4dbcd] focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
-              inputMode="text"
-              autoCapitalize="off"
-              autoCorrect="off"
-              enterKeyHint="go"
-            />
-            <button
-              type="button"
-              className={cn(
-                "h-9 shrink-0 rounded-xl px-3 text-[12px] font-bold shadow-sm transition active:scale-[0.97]",
-                pvpJoining || !pvpJoinInput.trim() ? "bg-[#f1ede6] text-[#e4dbcd]" : "bg-[#788d5d] text-white"
-              )}
-              disabled={pvpJoining || !pvpJoinInput.trim()}
-              onClick={() => {
-                const roomId = extractPvpRoomId(pvpJoinInput);
-                if (!roomId) return;
-                if (!authUserId || !authToken) {
-                  setShowLoginPanel(true);
-                  setAuthMessage("登录后可加入房间");
-                  return;
-                }
-                setPvpJoining(true);
-                window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
-              }}
-            >
-              {pvpJoining ? "加入中…" : "加入"}
-            </button>
-          </div>
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
@@ -2208,6 +2210,68 @@ export default function Home() {
               </Button>
               <Button type="button" size="sm" className="text-xs" onClick={() => void logout()} disabled={authBusy}>
                 {authBusy ? "处理中..." : "退出登录"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPvpJoinPanel && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
+            <div className="mb-2 text-sm font-semibold text-[#1A1A1A]">加入房间</div>
+            <input
+              value={pvpJoinInput}
+              onChange={(e) => setPvpJoinInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const roomId = extractPvpRoomId(pvpJoinInput);
+                if (!roomId) return;
+                if (!authUserId || !authToken) {
+                  setShowLoginPanel(true);
+                  setAuthMessage("登录后可加入房间");
+                  setShowPvpJoinPanel(false);
+                  return;
+                }
+                setPvpJoining(true);
+                window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+              }}
+              placeholder="输入房间号 / 粘贴链接"
+              className="h-10 w-full rounded-lg border border-[#e9e5dc] px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
+              inputMode="text"
+              autoCapitalize="off"
+              autoCorrect="off"
+              enterKeyHint="go"
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-[#e9e5dc] bg-white text-xs"
+                onClick={() => setShowPvpJoinPanel(false)}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="text-xs"
+                disabled={pvpJoining || !pvpJoinInput.trim()}
+                onClick={() => {
+                  const roomId = extractPvpRoomId(pvpJoinInput);
+                  if (!roomId) return;
+                  if (!authUserId || !authToken) {
+                    setShowLoginPanel(true);
+                    setAuthMessage("登录后可加入房间");
+                    setShowPvpJoinPanel(false);
+                    return;
+                  }
+                  setPvpJoining(true);
+                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                }}
+              >
+                {pvpJoining ? "加入中..." : "加入"}
               </Button>
             </div>
           </div>
