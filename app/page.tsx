@@ -108,8 +108,6 @@ export default function Home() {
   const [showPvpJoinPanel, setShowPvpJoinPanel] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [voiceFollowAction] = useState(true);
-  const [voicePlaying, setVoicePlaying] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceLevel] = useState<"key" | "all">("key");
   const [sfxEnabled] = useState(true);
@@ -451,7 +449,6 @@ export default function Home() {
     if (!t) return;
     // Queue playback to keep action order stable and avoid concurrent decode/play causing UI stalls.
     voiceQueueDepthRef.current += 1;
-    setVoicePlaying(true);
     const job = async () => {
       setVoiceError(null);
       let chatPushed = false;
@@ -526,7 +523,6 @@ export default function Home() {
       } finally {
         window.clearTimeout(hardTimer);
         voiceQueueDepthRef.current = Math.max(0, voiceQueueDepthRef.current - 1);
-        if (voiceQueueDepthRef.current === 0) setVoicePlaying(false);
       }
     };
 
@@ -1312,7 +1308,7 @@ export default function Home() {
   useEffect(() => {
     if (isResolving || state.isHandOver) return;
     if (heroNeedsFirstAction) return;
-    if (voiceEnabled && voiceFollowAction && voicePlaying) return;
+    // Do not gate AI turns on companion/table TTS — users expect the game to keep moving.
     const actor = state.players[state.toActIndex];
     if (!actor) return;
     if (actor.isHuman && actor.stack > 0) return;
@@ -1321,7 +1317,7 @@ export default function Home() {
       void nextStreetRef.current();
     }, 500);
     return () => clearTimeout(timer);
-  }, [state.toActIndex, state.isHandOver, isResolving, state.players, heroNeedsFirstAction, voiceEnabled, voiceFollowAction, voicePlaying]);
+  }, [state.toActIndex, state.isHandOver, isResolving, state.players, heroNeedsFirstAction]);
 
   const newHand = async () => {
     if (isResolving) return;
@@ -1412,91 +1408,14 @@ export default function Home() {
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <div className="hidden items-center gap-1.5 lg:flex">
-              <input
-                value={pvpJoinInput}
-                onChange={(e) => setPvpJoinInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  const roomId = extractPvpRoomId(pvpJoinInput);
-                  if (!roomId) return;
-                  if (!authUserId || !authToken) {
-                    setShowLoginPanel(true);
-                    setAuthMessage("登录后可加入房间");
-                    return;
-                  }
-                  setPvpJoining(true);
-                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
-                }}
-                placeholder="输入房间号加入…"
-                className="h-8 w-44 rounded-lg border border-[#e9e5dc] bg-white px-3 text-xs text-[#1A1A1A] shadow-sm outline-none placeholder:text-[#e4dbcd] focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
-                inputMode="text"
-                autoCapitalize="off"
-                autoCorrect="off"
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
-                disabled={pvpJoining || !pvpJoinInput.trim()}
-                onClick={() => {
-                  const roomId = extractPvpRoomId(pvpJoinInput);
-                  if (!roomId) return;
-                  if (!authUserId || !authToken) {
-                    setShowLoginPanel(true);
-                    setAuthMessage("登录后可加入房间");
-                    return;
-                  }
-                  setPvpJoining(true);
-                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
-                }}
-              >
-                {pvpJoining ? "加入中…" : "加入房间"}
-              </Button>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A] lg:hidden"
-              disabled={pvpJoining}
-              onClick={() => {
-                setShowPvpJoinPanel(true);
-              }}
-            >
-              加入房间
-            </Button>
             <Button
               type="button"
               size="sm"
               className="h-8 rounded-lg bg-[#1A1A1A] px-3 text-xs text-white shadow-sm hover:bg-black/90"
-              disabled={!authUserId || !authToken || pvpCreating}
-              onClick={async () => {
-                if (!authUserId || !authToken) {
-                  setShowLoginPanel(true);
-                  setAuthMessage("");
-                  return;
-                }
-                setPvpCreating(true);
-                try {
-                  const resp = await fetch("/api/pvp/rooms", {
-                    method: "POST",
-                    headers: { Authorization: `Bearer ${authToken}` },
-                  });
-                  const data = (await resp.json()) as { roomId?: string; error?: string };
-                  if (!resp.ok || !data.roomId) {
-                    setAuthMessage(data.error ?? "创建房间失败");
-                    setShowLoginPanel(true);
-                    return;
-                  }
-                  window.location.href = `/pvp/${data.roomId}`;
-                } finally {
-                  setPvpCreating(false);
-                }
-              }}
+              disabled={pvpCreating || pvpJoining}
+              onClick={() => setShowPvpJoinPanel(true)}
             >
-              {pvpCreating ? "创建中…" : "房间单挑"}
+              房间单挑
             </Button>
             {authUserId ? (
               <Button
@@ -2219,7 +2138,40 @@ export default function Home() {
       {showPvpJoinPanel && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
-            <div className="mb-2 text-sm font-semibold text-[#1A1A1A]">加入房间</div>
+            <div className="mb-3 text-sm font-semibold text-[#1A1A1A]">房间单挑</div>
+            <Button
+              type="button"
+              size="sm"
+              className="mb-3 h-9 w-full rounded-lg bg-[#1A1A1A] text-xs text-white hover:bg-black/90"
+              disabled={pvpCreating}
+              onClick={async () => {
+                if (!authUserId || !authToken) {
+                  setShowPvpJoinPanel(false);
+                  setShowLoginPanel(true);
+                  setAuthMessage("登录后可创建房间");
+                  return;
+                }
+                setPvpCreating(true);
+                try {
+                  const resp = await fetch("/api/pvp/rooms", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${authToken}` },
+                  });
+                  const data = (await resp.json()) as { roomId?: string; error?: string };
+                  if (!resp.ok || !data.roomId) {
+                    setAuthMessage(data.error ?? "创建房间失败");
+                    setShowLoginPanel(true);
+                    return;
+                  }
+                  window.location.href = `/pvp/${data.roomId}`;
+                } finally {
+                  setPvpCreating(false);
+                }
+              }}
+            >
+              {pvpCreating ? "创建中…" : "创建房间"}
+            </Button>
+            <div className="mb-2 text-center text-[11px] text-[#788d5d]">或加入已有房间</div>
             <input
               value={pvpJoinInput}
               onChange={(e) => setPvpJoinInput(e.target.value)}
