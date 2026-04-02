@@ -39,9 +39,24 @@ export async function POST(req: Request) {
   const baseUrl = cfg.baseUrl;
   const path = cfg.path;
   const speakerName = str(body.speakerName).trim();
-  const mappedSpeaker = speakerName ? (cfg.speakerByName[speakerName] ?? "") : "";
-  const speaker = str(body.speaker).trim() || mappedSpeaker || cfg.speaker;
-  const resourceId = (speakerName ? cfg.resourceIdByName[speakerName] : "")?.trim() || cfg.resourceId;
+  const nameAlias: Record<string, string> = {
+    // Table role rename compatibility: keep using Q宝's voice mapping.
+    小雨: "Q宝",
+  };
+  const resolvedName = speakerName ? (nameAlias[speakerName] ?? speakerName) : "";
+  // Hardcoded per-name speaker mapping (server-only, not exposed to client bundle).
+  // Priority: HARDCODED > TTS_CONFIG_JSON.speakerByName > default speaker
+  const HARD_CODED_SPEAKER_BY_NAME: Record<string, string> = {
+    幂幂: "zh_female_jiaochuan_mars_bigtts",
+    大炮: "ICL_zh_male_menyoupingxiaoge_ffed9fc2fee7_tob",
+    Z哥: "zh_male_aojiaobazong_emo_v2_mars_bigtts",
+    茶茶: "zh_female_sajiaonvyou_moon_bigtts",
+  };
+  const hardcoded = resolvedName ? (HARD_CODED_SPEAKER_BY_NAME[resolvedName] ?? "") : "";
+  const mappedSpeaker = resolvedName ? (cfg.speakerByName[resolvedName] ?? "") : "";
+  // NOTE: ignore client-provided `speaker` to avoid leaking/overriding mapping from browser.
+  const speaker = hardcoded || mappedSpeaker || cfg.speaker;
+  const resourceId = (resolvedName ? cfg.resourceIdByName[resolvedName] : "")?.trim() || cfg.resourceId;
   const format = pickFormat(body.format || cfg.format);
 
   if (!cfg.apiKey) {

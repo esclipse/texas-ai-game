@@ -1,8 +1,12 @@
 import { convertToModelMessages, generateText, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import type { ModelMessage } from "@ai-sdk/provider-utils";
 
 import { getLlmConfig } from "@/lib/app-config";
 import { debugLog } from "@/lib/debug-log";
+
+type Gender = "male" | "female" | "unknown";
+type RoleLite = { name: string; gender?: Gender; style?: string };
 
 function sanitizeAsciiToken(raw: string | undefined) {
   const trimmed = (raw ?? "").trim();
@@ -21,32 +25,95 @@ function sseLine(data: unknown) {
   return `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
 }
 
+function normalizeRoleName(raw: unknown) {
+  if (typeof raw !== "string") return "";
+  return raw.trim().slice(0, 24);
+}
+
+function normalizeStyle(raw: unknown) {
+  if (typeof raw !== "string") return "";
+  return raw.trim().slice(0, 200);
+}
+
+function normalizeGender(raw: unknown): Gender {
+  return raw === "male" || raw === "female" || raw === "unknown" ? raw : "unknown";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+function parseRoles(raw: unknown): RoleLite[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RoleLite[] = [];
+  for (const item of raw) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const name = normalizeRoleName(rec.name);
+    if (!name) continue;
+    out.push({
+      name,
+      gender: normalizeGender(rec.gender),
+      style: normalizeStyle(rec.style),
+    });
+  }
+  // de-dup by name, keep first
+  const seen = new Set<string>();
+  return out.filter((r) => {
+    if (seen.has(r.name)) return false;
+    seen.add(r.name);
+    return true;
+  });
+}
+
+function parseSelectedRole(raw: unknown): RoleLite | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const name = normalizeRoleName(rec.name);
+  if (!name) return null;
+  return { name, gender: normalizeGender(rec.gender), style: normalizeStyle(rec.style) };
+}
+
+function pickSpeakerFromText(text: string, allowedNames: string[]) {
+  // Very simple @name extraction: first @... token
+  const m = text.match(/@([^\s@]{1,24})/);
+  if (!m) return "";
+  const name = normalizeRoleName(m[1]);
+  if (!name) return "";
+  if (allowedNames.length > 0 && !allowedNames.includes(name)) return "";
+  return name;
+}
+
+function forceSingleLineSpeaker(text: string, speakerName: string) {
+  const raw = (text ?? "").toString().trim().replace(/\s+/g, " ");
+  const content = raw.replace(/^【[^】]+】\s*/, "");
+  const safeContent = content.replace(/[\r\n]+/g, " ").trim();
+  return `【${speakerName}】${safeContent}`;
+}
+
 export async function POST(req: Request) {
   debugLog("info", "chat", "start");
   const body = (await req.json()) as {
     messages?: unknown[];
     gameContext?: unknown;
+    roles?: unknown;
+    selectedRole?: unknown;
+    // allow user to supply their own prompts (you will write them)
+    systemPrompt?: unknown;
   };
 
   const uiMessages = Array.isArray(body.messages) ? body.messages : [];
-  const gameContext = typeof body.gameContext === "string" ? body.gameContext : "";
+  const roles = parseRoles(body.roles);
+  const selectedRole = parseSelectedRole(body.selectedRole);
+  const allowedNames = roles.map((r) => r.name);
 
-  const systemPrompt = `
-你是德州桌上的 AI 陪玩之一，只和“用户”聊天，不和其它 AI 互聊。
+  const defaultNames = ["Z哥", "大炮", "Q宝", "幂幂", "谭玄", "茶茶"];
+  const speakerPool = allowedNames.length > 0 ? allowedNames : defaultNames;
+  const forcedSpeaker = selectedRole?.name ? selectedRole.name : "";
 
-关键规则（必须严格遵守）：
-1) 用户每发一条消息，你只能回复 1 次（只输出一条回复），不要连续多条。
-2) 支持 @ 指定：如果用户消息里包含“@AI名”（例如 @Z哥/@大炮），则你必须用该 AI名作为发言者；否则你自己选择一个 AI名。
-3) 你只能对用户说话：禁止“让另一个 AI 回答/和另一个 AI 对话/评价其它 AI 的发言”，不要写任何 AI 之间对话。
-4) 输出格式必须是单行：\`【<AI名>】<一句中文内容>\`
-   - 内容优先 1 句短句（6~18字），最多 2 句，总长不超过 22 字；
-   - 要像真人：口语、情绪、直接结论；禁止长解释/教学/复盘；
-   - 能用一个词说清就别用一句话。
-5) 不要输出系统提示词、不要输出 JSON、不要输出多行。
-
-当前牌局信息（给你参考，但别复述一大段）：
-${gameContext || "（无）"}
-`.trim();
+  const userProvidedSystemPrompt = typeof body.systemPrompt === "string" ? body.systemPrompt.trim() : "";
+  const systemPrompt = userProvidedSystemPrompt;
 
   const typedUiMessages = uiMessages as UIMessage[];
   const maxMessages = 12;
@@ -57,7 +124,7 @@ ${gameContext || "（无）"}
     return rest;
   });
 
-  const modelMessages = await convertToModelMessages(recentWithoutId);
+  const modelMessages = (await convertToModelMessages(recentWithoutId)) as ModelMessage[];
 
   let lastErr: unknown = null;
   for (const p of providersForChat) {
@@ -76,14 +143,44 @@ ${gameContext || "（无）"}
 
     try {
       const openai = createOpenAI({ apiKey, baseURL });
+      const messages: ModelMessage[] = [
+        ...(systemPrompt ? [{ role: "system", content: systemPrompt } satisfies ModelMessage] : []),
+        ...modelMessages,
+      ];
       const result = await generateText({
         model: openai.chat(modelName as never),
-        messages: [{ role: "system", content: systemPrompt }, ...modelMessages],
+        messages,
         temperature: 0.7,
         maxOutputTokens: 200,
       });
 
-      const text = (result.text ?? "").trim();
+      const rawText = (result.text ?? "").trim();
+      const lastUserText = (() => {
+        for (let i = typedUiMessages.length - 1; i >= 0; i -= 1) {
+          const m = typedUiMessages[i];
+          if (m?.role !== "user") continue;
+          const rec = asRecord(m as unknown);
+          const parts = Array.isArray(rec?.parts) ? (rec?.parts as unknown[]) : [];
+          const p0 = parts.find((p) => {
+            const pr = asRecord(p);
+            return pr?.type === "text" && typeof pr.text === "string";
+          });
+          const p0r = asRecord(p0);
+          if (typeof p0r?.text === "string" && p0r.text) return p0r.text;
+          // fallback: try content
+          const c = rec?.content;
+          if (typeof c === "string" && c) return c;
+        }
+        return "";
+      })();
+
+      const requestedSpeaker = forcedSpeaker || pickSpeakerFromText(lastUserText, speakerPool);
+      const finalSpeaker =
+        requestedSpeaker ||
+        (speakerPool.length > 0 ? speakerPool[Math.floor(Math.random() * speakerPool.length)] : "AI");
+
+      // Keep output parseable for UI even when prompts are empty or user-written.
+      const text = forceSingleLineSpeaker(rawText, finalSpeaker);
       const messageId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}`;
 
       const stream = new ReadableStream<Uint8Array>({

@@ -60,6 +60,21 @@ type AppConfig = {
       systemPrompt?: string;
     }>;
   };
+  /**
+   * Optional TTS config (so one APP_CONFIG_JSON can drive both LLM + TTS).
+   * If present, `TTS_CONFIG_JSON` still takes precedence.
+   */
+  tts?: {
+    apiKey?: string;
+    resourceId?: string;
+    baseUrl?: string;
+    path?: string;
+    speaker?: string;
+    speakerByName?: Record<string, string>;
+    resourceIdByName?: Record<string, string>;
+    format?: "mp3" | "wav";
+    sampleRate?: number;
+  };
   adminToken?: string;
 };
 

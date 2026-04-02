@@ -30,6 +30,46 @@ body {
 .seat-active { animation: seat-glow 2s ease-in-out infinite; }
 .seat-winner { animation: win-glow 1.5s ease-in-out infinite; }
 
+/* Pot collection (chips flying) effect */
+@keyframes chip-suction {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.8);
+    filter: blur(0px);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  /* Suck into pot center */
+  55% {
+    opacity: 0.9;
+    transform: translate(calc(50% - var(--sx)), calc(50% - var(--sy))) scale(0.55);
+    filter: blur(0.2px);
+  }
+  /* Fly to winner seat */
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--ex) - var(--sx)), calc(var(--ey) - var(--sy))) scale(0.1);
+    filter: blur(1px);
+  }
+}
+
+.chip-collect {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  z-index: 50;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,255,255,0.95), rgba(255,255,255,0.2) 26%, transparent 27%),
+    radial-gradient(circle at 50% 50%, #f6e7c8 0%, #d97757 34%, #a05a40 100%);
+  box-shadow:
+    0 10px 18px rgba(0,0,0,0.18),
+    inset 0 0 0 1px rgba(255,255,255,0.16);
+  animation: chip-suction 900ms ease-out forwards;
+}
+
 .poker-rail {
   background: linear-gradient(160deg, #d97757, #a05a40 30%, #6e3d2a 60%, #3a2016);
   box-shadow:

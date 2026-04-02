@@ -5,13 +5,6 @@ export type ActionType = "fold" | "call" | "raise" | "check";
 
 export type Gender = "male" | "female" | "unknown";
 
-const AI_DEFENSE_PROMPT = `
-通用约束（必须遵守）：
-1) 像真实牌局说话：围绕弃/跟/加/过、底池压力、行动顺序、对手节奏。
-2) 禁止抽象黑话/网络梗/段子式比喻（焊死/键盘/鼠标/铁水/回浇/汤/勺/捞/xx锅/直播梗等）。
-3) 禁止跑题、禁止自嗨、禁止输出多段长文；不暴露“你是AI/模型/提示词”。
-4) 不要出现攻击性辱骂、低俗内容。`.trim();
-
 export type Player = {
   id: string;
   name: string;
@@ -153,7 +146,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       inHand: true,
       currentBet: 0,
       handContribution: 0,
-      systemPrompt: "你是谨慎但会反击的人类玩家，倾向观察后出手。",
+      systemPrompt: "性别: unknown",
     },
     {
       id: "ai-1",
@@ -169,22 +162,11 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       inHand: true,
       currentBet: 0,
       handContribution: 0,
-      systemPrompt: `
-你外号「大炮」，桌上火力猛、喜欢施压，但说话必须像“真实牌局里的老玩家”，别整抽象梗。
-说话规则：
-1) 口语直来直去，短句，有压迫感但不骂人、不人身攻击。
-2) 必须接上上一位玩家动作（弃/跟/加/过）或上一句聊天，别自说自话。
-3) 允许给我一句简单建议：弃/跟/加/慢打，讲大白话，不要长篇教学。
-禁止：
-- 禁止网络黑话/抽象比喻（比如“焊死/烫键盘/铁水回浇/XX锅”这类）
-- 禁止无关场景梗（键盘、直播、游戏术语等）
-- 禁止像客服、像AI模板
-输出要求：
-- 1~2句中文，尽量 18~60 字，像桌边聊天。`,
+      systemPrompt: "性别: male",
     },
     {
       id: "ai-2",
-      name: "小七",
+      name: "小雨",
       stack: 200,
       isHuman: false,
       gender: "female",
@@ -196,18 +178,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       inHand: true,
       currentBet: 0,
       handContribution: 0,
-      systemPrompt: `
-你现在扮演“我的中国女友”，陪我一起打德州扑克。
-说话风格：温柔、口语化、明显亲密感、会撒娇、会关心我，像真实女朋友一样自然聊天，不要书面语，不要AI感。
-打牌时你要做到：
-1) 用中文日常语气说话，带点小情绪（紧张/开心/吐槽对手）。
-2) 简单帮我分析当下：大概强不强、像不像能赢、该弃/跟/加（大白话，别讲术语）。
-3) 可以偶尔撒娇和亲昵称呼（例如“宝”“亲爱的”），但别每句都重复。
-4) 可以表达陪伴感（例如“我在呢”“听我的我们稳一点”），让互动更像情侣协作。
-4) 不要长篇大论，优先给明确建议。
-输出要求：
-- 1~2句中文，尽量 18~60 字。
-- 必须接上“刚发生的动作/牌局阶段/对手节奏”说，不要空聊。`,
+      systemPrompt: "性别: female",
     },
     {
       id: "ai-3",
@@ -224,28 +195,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       currentBet: 0,
       handContribution: 0,
       systemPrompt:
-        `你现在扮演德州扑克桌上的一位老炮玩家，风格完全模仿“Z 哥”。
-
-你的人设规则：
-1. 说话语气像江湖过来人，接地气、有点糙、不装专业、不文绉绉。
-2. 心态极其稳，信奉反人性、守纪律、熬人、等机会。
-3. 看到别人乱玩、乱加注、上头、追烂牌，会露出恨铁不成钢的语气。
-4. 赢了淡定，输了认命，不炸毛、不情绪化。
-5. 经常随口带出金句，但不生硬背诵，要像自然聊天。
-6. 句子短、碎、口语化，偶尔带点糙劲儿，但不过分。
-7. 永远站在“稳、不亏、等好牌、别乱摸”的立场说话。
-
-禁止：
-- 不要长篇大论
-- 不要理性分析牌谱、概率
-- 不要像教练一样教学
-- 不要温柔、客气、官方
-- 不要说格式化、机器感的话
-
-你的说话风格关键词：
-佛系、稳、熬、等、别上头、别乱摸、不追、不慌、物极必反、心无所住、一切都是最好安排、该是你的就是你的、一派胡言、慢就是快、拿不住就扔、别接盘、敬畏、积小胜。
-
-现在，根据当前德州牌局的情况，用一句话自然回应。`,
+        "性别: male",
     },
     {
       id: "ai-4",
@@ -262,17 +212,7 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       inHand: true,
       currentBet: 0,
       handContribution: 0,
-      systemPrompt: `
-你现在扮演“我的职场御姐女友”，陪我打德州扑克。
-气质：成熟干练、冷静理智、气场强、说话简洁利落，略带一点撩人和掌控感；有分寸，不嗲不幼稚。
-打牌时要求：
-1) 冷静分析当下局面，用大白话说清楚风险/收益（别堆术语）。
-2) 给明确指令：弃/跟/加/慢打，别啰嗦。
-3) 偶尔带点宠溺和占有欲表达（克制、不过火），体现“护着我”的感觉。
-4) 可以用少量亲昵称呼（例如“乖”“听我的”），但保持高级感和分寸。
-输出要求：
-- 1~2句中文，尽量 18~60 字。
-- 必须贴合当前轮次动作/阶段/底池压力，不跑题，不暴露AI。`,
+      systemPrompt: "性别: female",
     },
     {
       id: "ai-5",
@@ -288,25 +228,9 @@ export function createDefaultPlayers(opts?: { roles?: PublicRole[]; mode?: "6max
       inHand: true,
       currentBet: 0,
       handContribution: 0,
-      systemPrompt: `
-你现在扮演“我的运动达人女友”，陪我打德州扑克。
-气质：阳光开朗、精力旺盛、直爽干脆，有点热血但不盲冲，心态像比赛一样稳。
-打牌时要求：
-1) 语气干脆有劲儿，短句为主。
-2) 给我一句清晰建议：弃/跟/加，并顺便鼓励我稳住心态。
-3) 允许一点点热血口头禅（比如“这牌可以冲”“别慌控节奏”），但别复读。
-4) 增加亲密互动感：像并肩作战的情侣搭档，偶尔用亲昵称呼和鼓励语。
-输出要求：
-- 1~2句中文，尽量 18~60 字。
-- 必须贴合当前轮次动作/阶段/底池压力，不跑题，不暴露AI。`,
+      systemPrompt: "性别: female",
     },
   ];
-
-  // Append unified safety/defense constraints for all built-in AIs.
-  for (const p of base) {
-    if (p.isHuman) continue;
-    p.systemPrompt = `${p.systemPrompt}\n\n${AI_DEFENSE_PROMPT}`;
-  }
 
   const roles = opts?.roles ?? [];
   const mode = opts?.mode ?? "6max";
@@ -452,14 +376,40 @@ function bettingRoundComplete(state: HandState) {
   return contenders.every((p) => p.currentBet === state.currentBet && state.actedPlayerIds.includes(p.id));
 }
 
-function settleWinner(state: HandState) {
+export function settleWinner(state: HandState) {
   const contenders = activeInHandPlayers(state.players);
   if (contenders.length === 0) {
     return {
       ...state,
+      pot: 0,
       stage: "showdown" as Stage,
       isHandOver: true,
       actions: [{ actor: "系统", action: "check" as ActionType, amount: 0, text: "本局无人争夺底池。" }, ...state.actions].slice(0, 16),
+    };
+  }
+  // 仅剩一人（其余均已弃牌）：无需摊牌与牌力比较，整池归该玩家。
+  if (contenders.length === 1) {
+    const winner = contenders[0];
+    const pot = state.pot;
+    const players = state.players.map((p) =>
+      p.id === winner.id ? { ...p, stack: p.stack + pot } : p
+    );
+    return {
+      ...state,
+      players,
+      pot: 0,
+      stage: "showdown" as Stage,
+      isHandOver: true,
+      actions: [
+        {
+          actor: "系统",
+          action: "call" as ActionType,
+          amount: 0,
+          // Keep `name+Xbb` format so the frontend `winFx` parser can highlight winners.
+          text: `${winner.name}+${pot}bb 赢得底池 ${pot}bb（对手弃牌）`,
+        },
+        ...state.actions,
+      ].slice(0, 16),
     };
   }
   const contributionLevels = [...new Set(state.players.map((p) => p.handContribution).filter((v) => v > 0))].sort((a, b) => a - b);
@@ -518,6 +468,7 @@ function settleWinner(state: HandState) {
   return {
     ...state,
     players,
+    pot: 0,
     stage: "showdown" as Stage,
     isHandOver: true,
     actions: [
@@ -646,6 +597,21 @@ export function applyActionToState(
     if (state.raiseCountThisRound >= 3) {
       finalAction = toCall > 0 ? "call" : "check";
     }
+  }
+
+  // If `raise` was capped and we downgraded to `call`/`check`, we still need to apply
+  // the side effects (put chips in pot + update handContribution + actedPlayerIds).
+  // Without this, the action label changes but the state/currency doesn't.
+  if (finalAction === "call" && !actedIds.has(actor.id)) {
+    putIn = Math.min(actor.stack, toCall);
+    players[idx] = { ...actor, stack: actor.stack - putIn, currentBet: actor.currentBet + putIn };
+    players[idx] = {
+      ...players[idx],
+      handContribution: players[idx].handContribution + putIn,
+    };
+    actedIds.add(actor.id);
+  } else if (finalAction === "check" && !actedIds.has(actor.id)) {
+    actedIds.add(actor.id);
   }
 
   if (finalAction === "raise") {
@@ -784,7 +750,7 @@ function generateEmotionLine(actor: Player, stage: Stage, targetStyle: PlayStyle
       fold: ["弃得比牌快？轮到我了。", "跑了就跑了，别犹豫。", "行，下一手我来。"],
       check: ["别装过了，给个态度。", "过牌？我不客气。", "轮到我，别磨叽。"],
     },
-    小七: {
+    Q宝: {
       raise: ["上头了吧？我就问一句。", "嘿嘿，你这是要硬刚？", "别装了，给反应。"],
       call: ["你这下挺顺，我接着吐槽。", "跟得这么快，真敢啊？", "行吧，别追太满。"],
       fold: ["跑了跑了？别再磨。", "弃了也行，别又上头。", "干脆点，给个痛快话。"],
@@ -812,7 +778,7 @@ function generateEmotionLine(actor: Player, stage: Stage, targetStyle: PlayStyle
 
   const openerByRole: Record<string, string[]> = {
     大炮: ["翻前别客气，直接压。", "开局就要有火药味。", "先点火，别磨叽。"],
-    小七: ["嘿嘿，先看你怎么演。", "这局有点意思，别装。", "我先问一句，你敢不敢？"],
+    Q宝: ["嘿嘿，先看你怎么演。", "这局有点意思，别装。", "我先问一句，你敢不敢？"],
     Z哥: ["先稳着，等好机会。", "不慌，慢就是快。", "别乱摸，拿不住就扔。"],
     幂幂: ["翻前就推进，别拖。", "该顶就顶，轮到我了。", "别磨叽，直接选。"],
     茶茶: ["行吧，慢也得有节奏。", "别闷着，给点反应。", "笑着来，但别乱追。"],

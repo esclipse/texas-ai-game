@@ -6,11 +6,13 @@
     "dev": "next dev -p 8080",
     "build": "next build",
     "start": "next start -p 8080",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:game": "npx tsx scripts/run-settlement-tests.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/react": "^3.0.140",
+    "@radix-ui/react-select": "^2.2.6",
     "@supabase/supabase-js": "^2.100.0",
     "ai": "^6.0.138",
     "class-variance-authority": "^0.7.1",

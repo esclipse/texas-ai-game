@@ -1,3 +1,5 @@
+import { getAppConfig } from "@/lib/app-config";
+
 export type TtsConfig = {
   /** Volcengine x-api-key */
   apiKey: string;
@@ -36,7 +38,10 @@ function parseJsonEnv(raw: string | undefined): Partial<TtsConfig> | null {
  * - Fallback: env vars `DOUBAO_TTS_*`
  */
 export function getTtsConfig(): TtsConfig {
-  const j = parseJsonEnv(process.env.TTS_CONFIG_JSON) ?? {};
+  const app = getAppConfig();
+  const appTts = (app.tts && typeof app.tts === "object" ? (app.tts as Partial<TtsConfig>) : {}) ?? {};
+  // Priority: TTS_CONFIG_JSON > APP_CONFIG_JSON.tts > DOUBAO_TTS_*
+  const j = { ...appTts, ...(parseJsonEnv(process.env.TTS_CONFIG_JSON) ?? {}) };
 
   const rawFormat = String((j as { format?: unknown }).format ?? process.env.DOUBAO_TTS_FORMAT ?? "mp3").toLowerCase();
   const format: "mp3" | "wav" = rawFormat === "wav" ? "wav" : "mp3";
