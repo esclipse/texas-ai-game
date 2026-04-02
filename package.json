@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.48",
+    "@ai-sdk/provider-utils": "^4.0.21",
     "@ai-sdk/react": "^3.0.140",
     "@radix-ui/react-select": "^2.2.6",
     "@supabase/supabase-js": "^2.100.0",
