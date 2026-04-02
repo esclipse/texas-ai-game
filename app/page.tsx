@@ -56,6 +56,22 @@ export default function Home() {
   const hasSupabaseEnv =
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) && Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
+  const extractPvpRoomId = (raw: string) => {
+    const s = (raw ?? "").trim();
+    if (!s) return "";
+    // Accept either plain roomId or a copied invite URL like /pvp/<roomId> or https://x.com/pvp/<roomId>
+    try {
+      const u = new URL(s);
+      const m = u.pathname.match(/\/pvp\/([^/?#]+)/);
+      if (m?.[1]) return decodeURIComponent(m[1]).trim();
+      return s;
+    } catch {
+      const m = s.match(/\/pvp\/([^/?#]+)/);
+      if (m?.[1]) return decodeURIComponent(m[1]).trim();
+      return s;
+    }
+  };
+
   const [initialHand] = useState(() => {
     const basePlayers = createDefaultPlayers();
     // Deterministic initial dealing to prevent SSR hydration mismatches.
@@ -80,6 +96,8 @@ export default function Home() {
   const [heroName, setHeroName] = useState<string>("");
   const [isResolving, setIsResolving] = useState(false);
   const [pvpCreating, setPvpCreating] = useState(false);
+  const [pvpJoinInput, setPvpJoinInput] = useState("");
+  const [pvpJoining, setPvpJoining] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceFollowAction] = useState(true);
@@ -1371,6 +1389,49 @@ export default function Home() {
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <div className="hidden items-center gap-1.5 lg:flex">
+              <input
+                value={pvpJoinInput}
+                onChange={(e) => setPvpJoinInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const roomId = extractPvpRoomId(pvpJoinInput);
+                  if (!roomId) return;
+                  if (!authUserId || !authToken) {
+                    setShowLoginPanel(true);
+                    setAuthMessage("登录后可加入房间");
+                    return;
+                  }
+                  setPvpJoining(true);
+                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                }}
+                placeholder="输入房间号加入…"
+                className="h-8 w-44 rounded-lg border border-[#e9e5dc] bg-white px-3 text-xs text-[#1A1A1A] shadow-sm outline-none placeholder:text-[#e4dbcd] focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
+                inputMode="text"
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-lg border-[#e9e5dc] bg-white px-3 text-xs text-[#788d5d] shadow-sm hover:bg-[#faf9f6] hover:text-[#1A1A1A]"
+                disabled={pvpJoining || !pvpJoinInput.trim()}
+                onClick={() => {
+                  const roomId = extractPvpRoomId(pvpJoinInput);
+                  if (!roomId) return;
+                  if (!authUserId || !authToken) {
+                    setShowLoginPanel(true);
+                    setAuthMessage("登录后可加入房间");
+                    return;
+                  }
+                  setPvpJoining(true);
+                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                }}
+              >
+                {pvpJoining ? "加入中…" : "加入房间"}
+              </Button>
+            </div>
             <Button
               type="button"
               size="sm"
@@ -1943,6 +2004,39 @@ export default function Home() {
       </div>
       <div className="fixed bottom-0 left-1/2 z-40 w-[96%] -translate-x-1/2 pb-[env(safe-area-inset-bottom)] md:hidden">
         <div className="rounded-2xl border border-[#e9e5dc] bg-white/95 p-2 shadow-[0_-4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <input
+              value={pvpJoinInput}
+              onChange={(e) => setPvpJoinInput(e.target.value)}
+              placeholder="房间号 / 链接"
+              className="h-9 min-w-0 flex-1 rounded-xl border border-[#e9e5dc] bg-white px-3 text-[13px] text-[#1A1A1A] shadow-sm outline-none placeholder:text-[#e4dbcd] focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
+              inputMode="text"
+              autoCapitalize="off"
+              autoCorrect="off"
+              enterKeyHint="go"
+            />
+            <button
+              type="button"
+              className={cn(
+                "h-9 shrink-0 rounded-xl px-3 text-[12px] font-bold shadow-sm transition active:scale-[0.97]",
+                pvpJoining || !pvpJoinInput.trim() ? "bg-[#f1ede6] text-[#e4dbcd]" : "bg-[#788d5d] text-white"
+              )}
+              disabled={pvpJoining || !pvpJoinInput.trim()}
+              onClick={() => {
+                const roomId = extractPvpRoomId(pvpJoinInput);
+                if (!roomId) return;
+                if (!authUserId || !authToken) {
+                  setShowLoginPanel(true);
+                  setAuthMessage("登录后可加入房间");
+                  return;
+                }
+                setPvpJoining(true);
+                window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+              }}
+            >
+              {pvpJoining ? "加入中…" : "加入"}
+            </button>
+          </div>
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
