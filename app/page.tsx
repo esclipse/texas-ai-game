@@ -16,6 +16,7 @@ import {
   type Player,
   type PublicRole,
 } from "@/lib/game";
+import { sendMagicLinkToEmail } from "@/lib/magic-link-login";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AiRecordChat } from "@/components/ai-record-chat";
@@ -1098,19 +1099,13 @@ ${aiBrief || "（无）"}
   const actionDisabled = (!authUserId && !visitorId) || isBusted || state.isHandOver || !isHumanTurn || isResolving;
 
   const sendLoginLink = async () => {
-    const email = emailInput.trim().toLowerCase();
-    if (!email) {
-      setAuthMessage("请输入邮箱");
-      return;
-    }
     setAuthBusy(true);
     setAuthMessage("");
     try {
-      const sb = supabaseBrowser();
-      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
-      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-      if (error) {
-        setAuthMessage(`发送失败：${error.message}`);
+      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : "";
+      const res = await sendMagicLinkToEmail(emailInput, redirectTo);
+      if (!res.ok) {
+        setAuthMessage(res.error);
         return;
       }
       setAuthMessage("登录邮件已发送，请去邮箱点击链接完成登录。");

@@ -1,10 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
+import { sendMagicLinkToEmail } from "@/lib/magic-link-login";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { ActionType, HandState } from "@/lib/game";
 
@@ -26,6 +29,9 @@ export default function PvpRoomPage() {
   const [version, setVersion] = useState<number>(0);
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [loginMessage, setLoginMessage] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
 
   useEffect(() => {
     const sb = supabaseBrowser();
@@ -127,6 +133,25 @@ export default function PvpRoomPage() {
     return Math.max(2, state.lastRaiseSize);
   }, [state]);
 
+  const sendRoomLoginLink = async () => {
+    setLoginBusy(true);
+    setLoginMessage("");
+    try {
+      const redirectTo =
+        typeof window !== "undefined" ? `${window.location.origin}/pvp/${encodeURIComponent(roomId)}` : "";
+      const res = await sendMagicLinkToEmail(emailInput, redirectTo);
+      if (!res.ok) {
+        setLoginMessage(res.error);
+        return;
+      }
+      setLoginMessage("登录邮件已发送，请去邮箱点击链接，将直接回到本房间。");
+    } catch (e) {
+      setLoginMessage(`发送失败：${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
   const submit = async (action: ActionType, raiseBy = 0) => {
     if (!authToken || !roomId) return;
     if (!canAct) return;
@@ -164,7 +189,28 @@ export default function PvpRoomPage() {
 
       {!authToken ? (
         <Card className="border-zinc-200">
-          <CardContent className="p-4 text-sm text-zinc-600">请先在首页邮箱登录后，再打开此链接进入房间。</CardContent>
+          <CardContent className="space-y-3 p-4">
+            <div className="text-sm font-semibold text-zinc-900">登录后加入房间</div>
+            <p className="text-sm text-zinc-600">
+              输入邮箱收取登录链接，在邮件中点确认后会自动回到本房间，无需再回首页。
+            </p>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="输入邮箱"
+              className="h-10 w-full rounded-lg border border-zinc-200 px-3 text-sm text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" disabled={loginBusy} onClick={() => void sendRoomLoginLink()}>
+                {loginBusy ? "发送中…" : "发送登录邮件"}
+              </Button>
+              <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+                返回首页
+              </Link>
+            </div>
+            {loginMessage ? <div className="text-xs text-amber-800">{loginMessage}</div> : null}
+          </CardContent>
         </Card>
       ) : room?.status === "waiting" ? (
         <Card className="border-zinc-200">
