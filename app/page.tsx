@@ -106,6 +106,7 @@ export default function Home() {
   const [pvpCreating, setPvpCreating] = useState(false);
   const [pvpJoinInput, setPvpJoinInput] = useState("");
   const [pvpJoining, setPvpJoining] = useState(false);
+  const [pvpModalError, setPvpModalError] = useState("");
   const [showPvpJoinPanel, setShowPvpJoinPanel] = useState(false);
   // Auto-enable voice + sfx; audio will be unlocked on first user gesture.
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -1414,7 +1415,10 @@ export default function Home() {
               size="sm"
               className="h-8 rounded-lg bg-[#1A1A1A] px-3 text-xs text-white shadow-sm hover:bg-black/90"
               disabled={pvpCreating || pvpJoining}
-              onClick={() => setShowPvpJoinPanel(true)}
+              onClick={() => {
+                setPvpModalError("");
+                setShowPvpJoinPanel(true);
+              }}
             >
               房间单挑
             </Button>
@@ -2140,17 +2144,21 @@ export default function Home() {
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
             <div className="mb-3 text-sm font-semibold text-[#1A1A1A]">房间单挑</div>
+            {pvpModalError ? (
+              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{pvpModalError}</div>
+            ) : null}
             <Button
               type="button"
               size="sm"
               className="mb-3 h-9 w-full rounded-lg bg-[#1A1A1A] text-xs text-white hover:bg-black/90"
               disabled={pvpCreating}
               onClick={async () => {
+                setPvpModalError("");
                 setPvpCreating(true);
                 try {
                   const s = await ensurePvpSupabaseSession();
-                  if (!s) {
-                    setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                  if (!s.ok) {
+                    setPvpModalError(s.error);
                     return;
                   }
                   const resp = await fetch("/api/pvp/rooms", {
@@ -2159,7 +2167,7 @@ export default function Home() {
                   });
                   const data = (await resp.json()) as { roomId?: string; error?: string };
                   if (!resp.ok || !data.roomId) {
-                    setAuthMessage(data.error ?? "创建房间失败");
+                    setPvpModalError(data.error ?? `创建失败 (${resp.status})`);
                     return;
                   }
                   window.location.href = `/pvp/${data.roomId}`;
@@ -2182,8 +2190,8 @@ export default function Home() {
                   setPvpJoining(true);
                   try {
                     const s = await ensurePvpSupabaseSession();
-                    if (!s) {
-                      setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                    if (!s.ok) {
+                      setPvpModalError(s.error);
                       return;
                     }
                     window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
@@ -2205,7 +2213,10 @@ export default function Home() {
                 size="sm"
                 variant="outline"
                 className="border-[#e9e5dc] bg-white text-xs"
-                onClick={() => setShowPvpJoinPanel(false)}
+                onClick={() => {
+                  setPvpModalError("");
+                  setShowPvpJoinPanel(false);
+                }}
               >
                 取消
               </Button>
@@ -2221,8 +2232,8 @@ export default function Home() {
                     setPvpJoining(true);
                     try {
                       const s = await ensurePvpSupabaseSession();
-                      if (!s) {
-                        setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                      if (!s.ok) {
+                        setPvpModalError(s.error);
                         return;
                       }
                       window.location.href = `/pvp/${encodeURIComponent(roomId)}`;

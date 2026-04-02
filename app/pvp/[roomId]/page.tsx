@@ -37,8 +37,8 @@ export default function PvpRoomPage() {
       setSessionError("");
       const got = await ensurePvpSupabaseSession();
       if (!alive) return;
-      if (!got) {
-        setSessionError("无法建立会话，请检查网络或 Supabase 是否已开启 Anonymous 登录。");
+      if (!got.ok) {
+        setSessionError(got.error);
         return;
       }
       setAuthToken(got.accessToken);
