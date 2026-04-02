@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
-import { sendMagicLinkToEmail } from "@/lib/magic-link-login";
+import { ensurePvpSupabaseSession } from "@/lib/pvp-session";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { ActionType, HandState } from "@/lib/game";
 
@@ -24,23 +24,28 @@ export default function PvpRoomPage() {
 
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string>("");
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [state, setState] = useState<HandState | null>(null);
   const [version, setVersion] = useState<number>(0);
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
-  const [emailInput, setEmailInput] = useState("");
-  const [loginMessage, setLoginMessage] = useState("");
-  const [loginBusy, setLoginBusy] = useState(false);
 
   useEffect(() => {
-    const sb = supabaseBrowser();
     let alive = true;
-    void sb.auth.getSession().then(({ data }) => {
+    const run = async () => {
+      setSessionError("");
+      const got = await ensurePvpSupabaseSession();
       if (!alive) return;
-      setAuthToken(data.session?.access_token ?? null);
-      setUserId(data.session?.user?.id ?? null);
-    });
+      if (!got) {
+        setSessionError("无法建立会话，请检查网络或 Supabase 是否已开启 Anonymous 登录。");
+        return;
+      }
+      setAuthToken(got.accessToken);
+      setUserId(got.userId);
+    };
+    void run();
+    const sb = supabaseBrowser();
     const { data: sub } = sb.auth.onAuthStateChange((_e, session) => {
       setAuthToken(session?.access_token ?? null);
       setUserId(session?.user?.id ?? null);
@@ -133,25 +138,6 @@ export default function PvpRoomPage() {
     return Math.max(2, state.lastRaiseSize);
   }, [state]);
 
-  const sendRoomLoginLink = async () => {
-    setLoginBusy(true);
-    setLoginMessage("");
-    try {
-      const redirectTo =
-        typeof window !== "undefined" ? `${window.location.origin}/pvp/${encodeURIComponent(roomId)}` : "";
-      const res = await sendMagicLinkToEmail(emailInput, redirectTo);
-      if (!res.ok) {
-        setLoginMessage(res.error);
-        return;
-      }
-      setLoginMessage("登录邮件已发送，请去邮箱点击链接，将直接回到本房间。");
-    } catch (e) {
-      setLoginMessage(`发送失败：${e instanceof Error ? e.message : "unknown error"}`);
-    } finally {
-      setLoginBusy(false);
-    }
-  };
-
   const submit = async (action: ActionType, raiseBy = 0) => {
     if (!authToken || !roomId) return;
     if (!canAct) return;
@@ -182,35 +168,37 @@ export default function PvpRoomPage() {
     <main className="mx-auto w-full max-w-2xl p-4 text-zinc-900">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-base font-semibold">单挑房间</div>
-        <div className="text-xs text-zinc-500">room: {roomId.slice(0, 8)}…</div>
+        <button
+          type="button"
+          className="max-w-[60%] truncate text-xs text-zinc-500 hover:text-zinc-900"
+          title="点击复制房间号"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(roomId);
+            } catch {
+              // ignore
+            }
+          }}
+        >
+          room: <span className="font-mono">{roomId}</span>
+        </button>
       </div>
 
       {error ? <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
-      {!authToken ? (
+      {sessionError ? (
         <Card className="border-zinc-200">
           <CardContent className="space-y-3 p-4">
-            <div className="text-sm font-semibold text-zinc-900">登录后加入房间</div>
-            <p className="text-sm text-zinc-600">
-              输入邮箱收取登录链接，在邮件中点确认后会自动回到本房间，无需再回首页。
-            </p>
-            <input
-              type="email"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
-              placeholder="输入邮箱"
-              className="h-10 w-full rounded-lg border border-zinc-200 px-3 text-sm text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" size="sm" disabled={loginBusy} onClick={() => void sendRoomLoginLink()}>
-                {loginBusy ? "发送中…" : "发送登录邮件"}
-              </Button>
-              <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
-                返回首页
-              </Link>
-            </div>
-            {loginMessage ? <div className="text-xs text-amber-800">{loginMessage}</div> : null}
+            <div className="text-sm font-semibold text-zinc-900">连接失败</div>
+            <p className="text-sm text-zinc-600">{sessionError}</p>
+            <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+              返回首页
+            </Link>
           </CardContent>
+        </Card>
+      ) : !authToken ? (
+        <Card className="border-zinc-200">
+          <CardContent className="p-4 text-sm text-zinc-600">正在进入房间…</CardContent>
         </Card>
       ) : room?.status === "waiting" ? (
         <Card className="border-zinc-200">
@@ -260,4 +248,3 @@ export default function PvpRoomPage() {
     </main>
   );
 }
-

@@ -20,6 +20,7 @@ import {
   type PublicRole,
 } from "@/lib/game";
 import { sendMagicLinkToEmail } from "@/lib/magic-link-login";
+import { ensurePvpSupabaseSession } from "@/lib/pvp-session";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -2145,22 +2146,20 @@ export default function Home() {
               className="mb-3 h-9 w-full rounded-lg bg-[#1A1A1A] text-xs text-white hover:bg-black/90"
               disabled={pvpCreating}
               onClick={async () => {
-                if (!authUserId || !authToken) {
-                  setShowPvpJoinPanel(false);
-                  setShowLoginPanel(true);
-                  setAuthMessage("登录后可创建房间");
-                  return;
-                }
                 setPvpCreating(true);
                 try {
+                  const s = await ensurePvpSupabaseSession();
+                  if (!s) {
+                    setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                    return;
+                  }
                   const resp = await fetch("/api/pvp/rooms", {
                     method: "POST",
-                    headers: { Authorization: `Bearer ${authToken}` },
+                    headers: { Authorization: `Bearer ${s.accessToken}` },
                   });
                   const data = (await resp.json()) as { roomId?: string; error?: string };
                   if (!resp.ok || !data.roomId) {
                     setAuthMessage(data.error ?? "创建房间失败");
-                    setShowLoginPanel(true);
                     return;
                   }
                   window.location.href = `/pvp/${data.roomId}`;
@@ -2177,16 +2176,21 @@ export default function Home() {
               onChange={(e) => setPvpJoinInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
-                const roomId = extractPvpRoomId(pvpJoinInput);
-                if (!roomId) return;
-                if (!authUserId || !authToken) {
-                  setShowLoginPanel(true);
-                  setAuthMessage("登录后可加入房间");
-                  setShowPvpJoinPanel(false);
-                  return;
-                }
-                setPvpJoining(true);
-                window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                void (async () => {
+                  const roomId = extractPvpRoomId(pvpJoinInput);
+                  if (!roomId) return;
+                  setPvpJoining(true);
+                  try {
+                    const s = await ensurePvpSupabaseSession();
+                    if (!s) {
+                      setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                      return;
+                    }
+                    window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                  } finally {
+                    setPvpJoining(false);
+                  }
+                })();
               }}
               placeholder="输入房间号 / 粘贴链接"
               className="h-10 w-full rounded-lg border border-[#e9e5dc] px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#d97757]/25"
@@ -2211,16 +2215,21 @@ export default function Home() {
                 className="text-xs"
                 disabled={pvpJoining || !pvpJoinInput.trim()}
                 onClick={() => {
-                  const roomId = extractPvpRoomId(pvpJoinInput);
-                  if (!roomId) return;
-                  if (!authUserId || !authToken) {
-                    setShowLoginPanel(true);
-                    setAuthMessage("登录后可加入房间");
-                    setShowPvpJoinPanel(false);
-                    return;
-                  }
-                  setPvpJoining(true);
-                  window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                  void (async () => {
+                    const roomId = extractPvpRoomId(pvpJoinInput);
+                    if (!roomId) return;
+                    setPvpJoining(true);
+                    try {
+                      const s = await ensurePvpSupabaseSession();
+                      if (!s) {
+                        setAuthMessage("无法连接，请检查网络或 Supabase Anonymous 登录是否已开启");
+                        return;
+                      }
+                      window.location.href = `/pvp/${encodeURIComponent(roomId)}`;
+                    } finally {
+                      setPvpJoining(false);
+                    }
+                  })();
                 }}
               >
                 {pvpJoining ? "加入中..." : "加入"}

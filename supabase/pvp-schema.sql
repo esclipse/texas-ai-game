@@ -59,3 +59,5 @@ create policy "pvp_game_states deny write"
   using (false)
   with check (false);
 
+-- PVP 免邮箱登录：在 Supabase Dashboard → Authentication → Providers 中开启 Anonymous，
+-- 客户端即可 signInAnonymously()，仍使用 JWT 与 auth.users 外键，无需改本表结构。
