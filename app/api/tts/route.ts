@@ -51,12 +51,23 @@ export async function POST(req: Request) {
     大炮: "ICL_zh_male_menyoupingxiaoge_ffed9fc2fee7_tob",
     Z哥: "zh_male_aojiaobazong_emo_v2_mars_bigtts",
     茶茶: "zh_female_sajiaonvyou_moon_bigtts",
+    // 角色扮演内置（男/女与气质对齐；可在 TTS_CONFIG_JSON.speakerByName 覆盖）
+    律师: "zh_male_aojiaobazong_emo_v2_mars_bigtts",
+    学长: "ICL_zh_male_menyoupingxiaoge_ffed9fc2fee7_tob",
+    韭菜: "zh_female_jiaochuan_mars_bigtts",
+    医生: "zh_female_sajiaonvyou_moon_bigtts",
+    小暖: "zh_female_sajiaonvyou_moon_bigtts",
+    林凛: "zh_female_jiaochuan_mars_bigtts",
   };
   const hardcoded = resolvedName ? (HARD_CODED_SPEAKER_BY_NAME[resolvedName] ?? "") : "";
   const mappedSpeaker = resolvedName ? (cfg.speakerByName[resolvedName] ?? "") : "";
   // NOTE: ignore client-provided `speaker` to avoid leaking/overriding mapping from browser.
-  const speaker = hardcoded || mappedSpeaker || cfg.speaker;
-  const resourceId = (resolvedName ? cfg.resourceIdByName[resolvedName] : "")?.trim() || cfg.resourceId;
+  // 环境 TTS_CONFIG_JSON.speakerByName 优先，便于线上改音色；未配置时用硬编码默认（陪伴 + 角色扮演）
+  const speaker = mappedSpeaker || hardcoded || cfg.speaker;
+  const resourceFromName = (resolvedName ? cfg.resourceIdByName[resolvedName] : "")?.trim() || "";
+  const resourceFromIcl =
+    speaker.includes("ICL_") && cfg.resourceIdByName["大炮"] ? cfg.resourceIdByName["大炮"].trim() : "";
+  const resourceId = resourceFromName || resourceFromIcl || cfg.resourceId;
   const format = pickFormat(body.format || cfg.format);
 
   if (!cfg.apiKey) {

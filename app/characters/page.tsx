@@ -1,26 +1,12 @@
 "use client";
+/* 角色列表仅内置；勿再 import LS_ROLES_KEY（已从 characters-shared 移除） */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Compass, Menu, MessageCircle, Plus, UserRound, X } from "lucide-react";
+import { Compass, Menu, MessageCircle, UserRound } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import {
-  BUILTIN_ROLES,
-  LS_ROLES_KEY,
-  IDB_CHAT_KEY_PREFIX,
-  normalizeRoleName,
-  normalizeRoleStyle,
-  parseStoredRolesFromLocalStorage,
-  roleCardImage,
-  type Gender,
-  type Role,
-} from "@/lib/characters-shared";
-import { idbDel } from "@/lib/indexeddb";
+import { BUILTIN_ROLES, parseStoredRolesFromLocalStorage, roleCardImage, type Gender, type Role } from "@/lib/characters-shared";
 
 const ACCENT = "#c8f542";
 
@@ -33,26 +19,9 @@ function fakeMetric(id: string): string {
 }
 
 export default function CharactersExplorePage() {
-  const router = useRouter();
-  const [roles, setRoles] = useState<Role[]>(() => parseStoredRolesFromLocalStorage());
+  const roles = useMemo<Role[]>(() => parseStoredRolesFromLocalStorage(), []);
   const [tab, setTab] = useState<"foryou" | "all">("foryou");
   const [genderFilter, setGenderFilter] = useState<"all" | Gender>("all");
-  const [showCreate, setShowCreate] = useState(false);
-
-  const [newName, setNewName] = useState("");
-  const [newGender, setNewGender] = useState<Gender>("unknown");
-  const [newStyle, setNewStyle] = useState("");
-  const [newSystemPrompt, setNewSystemPrompt] = useState("");
-  const [newImageUrl, setNewImageUrl] = useState("");
-  const [roleError, setRoleError] = useState("");
-
-  useEffect(() => {
-    try {
-      globalThis.localStorage?.setItem(LS_ROLES_KEY, JSON.stringify(roles));
-    } catch {
-      // ignore
-    }
-  }, [roles]);
 
   const filtered = useMemo(() => {
     let list = roles;
@@ -60,51 +29,6 @@ export default function CharactersExplorePage() {
     if (tab === "foryou") list = [...list].sort((a, b) => (a.isBuiltIn === b.isBuiltIn ? 0 : a.isBuiltIn ? -1 : 1));
     return list;
   }, [roles, tab, genderFilter]);
-
-  const createRole = () => {
-    setRoleError("");
-    const name = normalizeRoleName(newName);
-    const style = normalizeRoleStyle(newStyle);
-    const systemPrompt = newSystemPrompt.trim().slice(0, 2000);
-    const imageUrl = newImageUrl.trim().slice(0, 500) || undefined;
-    if (!name) {
-      setRoleError("请输入角色名。");
-      return;
-    }
-    if (!style) {
-      setRoleError("请输入角色风格（简短描述）。");
-      return;
-    }
-    if (roles.some((r) => r.name === name)) {
-      setRoleError("角色名重复，请换一个。");
-      return;
-    }
-    const id = `u_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const role: Role = {
-      id,
-      name,
-      gender: newGender,
-      style,
-      systemPrompt: systemPrompt || undefined,
-      imageUrl,
-      isBuiltIn: false,
-    };
-    setRoles((prev) => [...prev, role]);
-    setNewName("");
-    setNewGender("unknown");
-    setNewStyle("");
-    setNewSystemPrompt("");
-    setNewImageUrl("");
-    setShowCreate(false);
-    router.push(`/characters/${encodeURIComponent(id)}`);
-  };
-
-  const deleteRole = async (roleId: string) => {
-    const r = roles.find((x) => x.id === roleId);
-    if (!r || r.isBuiltIn) return;
-    setRoles((prev) => prev.filter((x) => x.id !== roleId));
-    await idbDel(`${IDB_CHAT_KEY_PREFIX}${roleId}`).catch(() => {});
-  };
 
   return (
     <div className="min-h-dvh bg-[#0b0b0c] pb-24 text-white">
@@ -169,108 +93,21 @@ export default function CharactersExplorePage() {
                     </div>
                   </article>
                 </Link>
-                {!r.isBuiltIn ? (
-                  <button
-                    type="button"
-                    className="absolute right-1 top-10 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white/80 backdrop-blur-md hover:text-red-300"
-                    aria-label="删除角色"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      void deleteRole(r.id);
-                    }}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
               </div>
             );
           })}
         </div>
-
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[#0b0b0c]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-lg items-end justify-around px-2 pb-2 pt-1">
           <NavIcon icon={<Compass className="h-5 w-5" />} label="探索" active />
           <NavIcon icon={<MessageCircle className="h-5 w-5" />} label="聊天" href={BUILTIN_ROLES[0] ? `/characters/${BUILTIN_ROLES[0].id}` : "/characters"} />
-          <button
-            type="button"
-            onClick={() => {
-              setRoleError("");
-              setShowCreate(true);
-            }}
-            className="relative -top-4 flex h-14 w-14 items-center justify-center rounded-full text-black shadow-[0_8px_24px_rgba(200,245,66,0.35)]"
-            style={{ backgroundColor: ACCENT }}
-            aria-label="创建角色"
-          >
-            <Plus className="h-7 w-7 stroke-[2.5]" />
-          </button>
+          <div className="relative -top-4 h-14 w-14 shrink-0" aria-hidden />
           <NavIcon icon={<span className="text-lg">🏅</span>} label="排行" />
           <NavIcon icon={<UserRound className="h-5 w-5" />} label="我的" href="/" />
         </div>
       </nav>
-
-      {showCreate ? (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
-          <div
-            className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121214] p-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
-            <div className="mb-3 text-sm font-semibold">创建角色</div>
-            <div className="space-y-3">
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="角色名"
-                className="border-white/15 bg-white/5 text-white placeholder:text-white/35"
-              />
-              <div className="flex gap-2">
-                {(["unknown", "male", "female"] as const).map((g) => (
-                  <Button
-                    key={g}
-                    type="button"
-                    size="sm"
-                    variant={newGender === g ? "default" : "secondary"}
-                    className={cn(newGender === g && "border-0 text-black")}
-                    style={newGender === g ? { backgroundColor: ACCENT } : undefined}
-                    onClick={() => setNewGender(g)}
-                  >
-                    {g === "unknown" ? "未知" : g === "male" ? "男" : "女"}
-                  </Button>
-                ))}
-              </div>
-              <Textarea
-                value={newStyle}
-                onChange={(e) => setNewStyle(e.target.value)}
-                placeholder="一句话人设（卡片简介）"
-                className="min-h-[72px] border-white/15 bg-white/5 text-white placeholder:text-white/35"
-              />
-              <Input
-                value={newImageUrl}
-                onChange={(e) => setNewImageUrl(e.target.value)}
-                placeholder="封面图 URL（可选）"
-                className="border-white/15 bg-white/5 text-white placeholder:text-white/35"
-              />
-              <Textarea
-                value={newSystemPrompt}
-                onChange={(e) => setNewSystemPrompt(e.target.value)}
-                placeholder="系统提示词（可选）"
-                className="min-h-[88px] border-white/15 bg-white/5 text-white placeholder:text-white/35"
-              />
-              {roleError ? <div className="text-xs text-red-400">{roleError}</div> : null}
-              <div className="flex gap-2 pt-1">
-                <Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white" onClick={() => setShowCreate(false)}>
-                  取消
-                </Button>
-                <Button type="button" className="flex-1 border-0 text-black" style={{ backgroundColor: ACCENT }} onClick={createRole}>
-                  创建并开聊
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

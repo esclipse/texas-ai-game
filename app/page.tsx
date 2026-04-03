@@ -558,7 +558,6 @@ export default function Home() {
 
   const COMPANION_SELECTED_KEY = "companion.selectedRoleId.v1";
   const COMPANION_WELCOME_KEY = "companion.welcome.v1";
-  const CHARACTERS_ROLES_KEY = "characters.roles.v1";
   const defaultCompanions = useMemo(
     () => [
       {
@@ -629,43 +628,6 @@ export default function Home() {
       // ignore
     }
   }, [selectedCompanionId]);
-
-  useEffect(() => {
-    // Load user-created roles for companion selection (standalone characters).
-    try {
-      const raw = globalThis.localStorage?.getItem(CHARACTERS_ROLES_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Array<{ id?: unknown; name?: unknown; gender?: unknown; style?: unknown; systemPrompt?: unknown }>;
-      if (!Array.isArray(parsed)) return;
-      const cleaned = parsed
-        .map((r) => ({
-          id: typeof r.id === "string" ? r.id : "",
-          name: typeof r.name === "string" ? r.name.trim() : "",
-          gender: typeof r.gender === "string" ? r.gender : undefined,
-          style: typeof r.style === "string" ? r.style : undefined,
-          systemPrompt: typeof r.systemPrompt === "string" ? r.systemPrompt.trim() : undefined,
-        }))
-        .filter((r) => r.id && r.name);
-      // Merge: keep defaults + add/override user roles by id.
-      if (cleaned.length > 0) {
-        const byId = new Map<string, { id: string; name: string; ttsName: string; gender?: string; style?: string; systemPrompt?: string }>();
-        for (const c of defaultCompanions) byId.set(c.id, c);
-        // User-created roles are already "companion identities". Keep the name as-is.
-        for (const c of cleaned) byId.set(c.id, { ...c, ttsName: c.name });
-        const merged = Array.from(byId.values());
-        setCompanionOptions(merged);
-        // If the previously selected id is missing, try to keep by name; otherwise fall back to first.
-        if (!merged.some((c) => c.id === selectedCompanionId)) {
-          const old = companionOptions.find((c) => c.id === selectedCompanionId);
-          const byName = old?.name ? merged.find((c) => c.name === old.name) : null;
-          setSelectedCompanionId(byName?.id ?? merged[0]?.id ?? defaultCompanions[0]?.id ?? "zge");
-        }
-      }
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const requestCompanion = useCallback(
     async (

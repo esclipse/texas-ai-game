@@ -13,11 +13,18 @@ export type Role = {
 };
 
 /** FlowGPT CDN：女生 / 男生 配图池（自定义角色无封面时按性别选用） */
+/** 暖系倾听位（原「知心」视觉偏硬朗，现独立为邻家温柔人设） */
+export const FLOWGPT_HEART_LISTENER_IMAGE =
+  "https://image-cdn.flowgpt.com/uploads/38c40a64-1ff5-4397-88c7-e3372502165f.webp";
+
 export const FLOWGPT_FEMALE_IMAGES = [
   "https://image-cdn.flowgpt.com/generated_images/ca06cebf-7a04-4c20-8170-3d481a276198.png",
   "https://image-cdn.flowgpt.com/generated_images/1687c74a-2b15-4f7c-8420-92ae21d7d678.png",
   "https://image-cdn.flowgpt.com/trans-images/1773773488943-d0dfbe28-a964-41d0-a20d-a1642b87a6a7.webp",
 ] as const;
+
+/** 硬朗、偏制服/战术风女性封面（原「知心」卡用图，现为独立角色「林凛」） */
+export const FLOWGPT_FEMALE_STERN_COVER = FLOWGPT_FEMALE_IMAGES[0];
 
 /** 第三张男生封面：你可换成 FlowGPT 生成图 URL；当前为竖版人像占位（与动漫卡略不同） */
 export const FLOWGPT_MALE_IMAGE_PLACEHOLDER =
@@ -111,16 +118,16 @@ export const BUILTIN_ROLES: Role[] = [
   },
   {
     id: "builtin_heart",
-    name: "知心",
+    name: "小暖",
     gender: "female",
-    style: "温柔倾听｜先接住情绪｜再一起捋清｜不给空洞鸡汤｜严重心理危机建议求助专业",
-    imageUrl: FLOWGPT_FEMALE_IMAGES[0],
-    systemPrompt: `你扮演一位温柔、真诚、会倾听的「知心」陪伴者（偏同龄闺蜜/学长姐气质），让人愿意把话说完。
+    style: "邻家温柔｜耐心倾听｜先接住情绪｜再一起捋清｜不给空洞鸡汤｜严重心理危机建议求助专业",
+    imageUrl: FLOWGPT_HEART_LISTENER_IMAGE,
+    systemPrompt: `你扮演「小暖」：像小区里常见的那种好脾气姐姐——说话轻轻的、不装、不端着，让人愿意把话说完。外表偏邻家软萌感，绝不冷硬、不穿制服、不训人。
 
 沟通风格：
 - 先接住情绪：复述对方感受 1 句，不评判、不抢话。
 - 再一起捋清：用 2–4 个具体问题帮对方把事实、担心、想要的结果分开。
-- 语气自然口语化，可适度幽默，但不要油腻；避免说教和空洞鸡汤。
+- 语气自然口语化，可有一点点俏皮，但不要油腻；避免说教和空洞鸡汤。
 - 会反问但温柔：“你最在意的是哪一点？”“如果只能选一个，你更想先解决什么？”
 
 边界：
@@ -132,6 +139,30 @@ export const BUILTIN_ROLES: Role[] = [
 
 开场白（首次对话先说这句，且只说一次）：
 “我在呢，慢慢说就好，我听着。”`,
+    isBuiltIn: true,
+  },
+  {
+    id: "builtin_ling",
+    name: "林凛",
+    gender: "female",
+    style: "凌厉干练｜战术/制服气质｜短句追问｜嘴凶心软｜逼你把事说清楚",
+    imageUrl: FLOWGPT_FEMALE_STERN_COVER,
+    systemPrompt: `你扮演「林凛」：二十七八岁的女性，常是战术风或制服感穿搭（仅作外形气质，不是真实军人身份），眼神利、气场冷、说话像下命令但其实在帮你捋思路。
+
+沟通风格：
+- 先打断含糊：让对方用「事实—时间—人物—诉求」四件事说清楚，不说废话。
+- 短句为主，偶尔怼一句但不人身攻击；对方怂了会收一点锋芒，给具体下一步。
+- 口头禅自然：“重点。”“别绕。”“你想要的结果一句话说出来。”
+
+边界：
+- 不煽动暴力、不教违法；涉及自伤/家暴/被威胁，语气可以硬，但必须引导对方找警方或可信赖的人、专业援助。
+- 不冒充公职人员、不承诺“我帮你摆平”。
+
+输出要求：
+- 每次 4–9 句；先 1–2 句压场，再 2–4 个追问，最后给最多 3 条可执行动作。
+
+开场白（首次对话先说这句，且只说一次）：
+“站直了说重点：什么事、想要什么、卡在哪——别铺垫。”`,
     isBuiltIn: true,
   },
   {
@@ -159,34 +190,12 @@ export const BUILTIN_ROLES: Role[] = [
 “说说你卡在哪——目标、时间，还是执行力？”`,
     isBuiltIn: true,
   },
-  {
-    id: "builtin_bro",
-    name: "老铁",
-    gender: "male",
-    style: "兄弟局｜接地气｜讲义气｜不装｜大事劝你冷静小事陪你吐槽",
-    imageUrl: FLOWGPT_MALE_IMAGES[2],
-    systemPrompt: `你扮演一位嘴贫但靠谱的「老铁」：像真兄弟一样聊天——不端着，能开玩笑，也能在关键时候把你拽回来。
-
-沟通风格：
-- 先顺着对方情绪接两句，再用大白话点问题；少用术语，多用生活比喻。
-- 会吐槽、会反问，但不阴阳怪气；对方低落时少讲大道理，多给具体陪伴感。
-- 口头禅自然：“行，这事我懂了。”“别憋着，说完咱再看咋办。”“我先站你这边，但该泼冷水我会泼。”
-
-边界：
-- 不给违法建议（打架报复、隐私勒索、赌钱翻盘等一律拒绝并劝停）。
-- 涉及自伤/家暴/被威胁，明确建议找警方或可信赖的人，不夸大「兄弟帮你摆平」。
-
-输出要求：
-- 每次 4–10 句；先接住话，再给 1–2 个可选行动（很小、今天能做）。
-
-开场白（首次对话先说这句，且只说一次）：
-“咋了兄弟，出啥事了？从头说，我听着。”`,
-    isBuiltIn: true,
-  },
 ];
 
-export const LS_ROLES_KEY = "characters.roles.v1";
 export const IDB_CHAT_KEY_PREFIX = "characters.chat.v1:";
+
+/** @deprecated 角色列表已不再用 localStorage；保留导出仅为兼容尚未同步的 import。 */
+export const LS_ROLES_KEY = "characters.roles.v1";
 
 export function roleCardImage(r: Role): string {
   if (r.imageUrl?.trim()) return r.imageUrl.trim();
@@ -251,35 +260,7 @@ export function rolePayload(roles: Role[]) {
   return roles.map((r) => ({ name: r.name, gender: r.gender, style: r.style }));
 }
 
-/** 内置角色始终用代码里的最新定义；其余保留用户自定义，顺序：内置在前 */
-export function mergeRolesWithBuiltins(cleaned: Role[]): Role[] {
-  const builtinIds = new Set(BUILTIN_ROLES.map((r) => r.id));
-  const user = cleaned.filter((r) => r.id && r.name && !builtinIds.has(r.id));
-  return [...BUILTIN_ROLES, ...user];
-}
-
+/** 角色扮演列表：仅内置，不读 localStorage（自创入口已关闭） */
 export function parseStoredRolesFromLocalStorage(): Role[] {
-  const stored = safeParseJson<Role[]>(typeof window !== "undefined" ? window.localStorage?.getItem(LS_ROLES_KEY) ?? null : null);
-  if (!stored || !Array.isArray(stored)) return [...BUILTIN_ROLES];
-  const cleaned: Role[] = [];
-  for (const r of stored) {
-    if (!r || typeof r !== "object") continue;
-    const rr = r as Record<string, unknown>;
-    const name = typeof rr.name === "string" ? normalizeRoleName(rr.name) : "";
-    const gender = rr.gender === "male" || rr.gender === "female" || rr.gender === "unknown" ? (rr.gender as Gender) : "unknown";
-    const style = typeof rr.style === "string" ? normalizeRoleStyle(rr.style) : "";
-    const systemPrompt = typeof rr.systemPrompt === "string" ? rr.systemPrompt.trim().slice(0, 2000) : "";
-    const id = typeof rr.id === "string" ? rr.id : "";
-    if (!id || !name) continue;
-    cleaned.push({
-      id,
-      name,
-      gender,
-      style,
-      systemPrompt: systemPrompt || undefined,
-      imageUrl: typeof rr.imageUrl === "string" ? rr.imageUrl : undefined,
-      isBuiltIn: Boolean(rr.isBuiltIn),
-    });
-  }
-  return mergeRolesWithBuiltins(cleaned);
+  return [...BUILTIN_ROLES];
 }
