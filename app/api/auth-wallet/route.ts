@@ -22,6 +22,10 @@ async function getAuthedUser(req: Request) {
   return { ok: true as const, userId: data.user.id };
 }
 
+/**
+ * 德州筹码：仅维护 chip_balance / daily_grant_date。
+ * 角色扮演 credit 见 GET /api/roleplay-credit，勿在此混刷。
+ */
 export async function GET(req: Request) {
   const auth = await getAuthedUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
@@ -64,7 +68,13 @@ export async function GET(req: Request) {
 
   const { data: inserted, error: insErr } = await supabase
     .from("player_wallets")
-    .insert({ user_id: auth.userId, chip_balance: 200, daily_grant_date: today })
+    .insert({
+      user_id: auth.userId,
+      chip_balance: 200,
+      daily_grant_date: today,
+      credit_balance: 200,
+      credit_grant_date: today,
+    })
     .select("chip_balance, daily_grant_date")
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
@@ -106,4 +116,3 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, userId: auth.userId, chipBalance });
 }
-

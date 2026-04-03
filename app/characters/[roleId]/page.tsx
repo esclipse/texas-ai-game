@@ -18,6 +18,7 @@ import {
   textFromUiMessage,
 } from "@/lib/characters-shared";
 import { idbGet, idbSet } from "@/lib/indexeddb";
+import { supabaseBrowser } from "@/lib/supabase/client";
 
 const LS_VOICE = "characters.roleplay.voiceEnabled.v1";
 const LS_AUTO = "characters.roleplay.autoReadAi.v1";
@@ -45,6 +46,8 @@ export default function CharacterChatPage() {
   const lastSpokenIdRef = useRef("");
   const chatBootstrappedRef = useRef(false);
   const userSentThisSessionRef = useRef(false);
+  const [roleplayCredit, setRoleplayCredit] = useState<number | null>(null);
+  const [roleplayCreditAuthed, setRoleplayCreditAuthed] = useState(false);
 
   const unlockAudio = useCallback(async () => {
     if (voiceUnlockedRef.current) return true;
@@ -113,6 +116,57 @@ export default function CharacterChatPage() {
     };
   }, [unlockAudio]);
 
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    let cancelled = false;
+    const loadCredit = async () => {
+      const { data } = await sb.auth.getSession();
+      const t = data.session?.access_token;
+      if (!t) {
+        setRoleplayCreditAuthed(false);
+        setRoleplayCredit(null);
+        return;
+      }
+      setRoleplayCreditAuthed(true);
+      try {
+        const resp = await fetch("/api/roleplay-credit", { headers: { Authorization: `Bearer ${t}` } });
+        const j = (await resp.json()) as { creditBalance?: number };
+        if (cancelled) return;
+        if (resp.ok && typeof j.creditBalance === "number") setRoleplayCredit(Math.max(0, Math.floor(j.creditBalance)));
+        else setRoleplayCredit(null);
+      } catch {
+        if (!cancelled) setRoleplayCredit(null);
+      }
+    };
+    void loadCredit();
+    const { data: sub } = sb.auth.onAuthStateChange(() => {
+      void loadCredit();
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      void supabaseBrowser()
+        .auth.getSession()
+        .then(({ data }) => {
+          const t = data.session?.access_token;
+          if (!t) return;
+          return fetch("/api/roleplay-credit", { headers: { Authorization: `Bearer ${t}` } });
+        })
+        .then((resp) => (resp?.ok ? resp.json() : null))
+        .then((j: { creditBalance?: unknown } | null) => {
+          if (j && typeof j.creditBalance === "number") setRoleplayCredit(Math.max(0, Math.floor(j.creditBalance)));
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("roleplay-credit-refresh", onRefresh);
+    return () => window.removeEventListener("roleplay-credit-refresh", onRefresh);
+  }, []);
+
   const chatBody = useMemo(() => {
     const payload = rolePayload(roles);
     const sel = role ? { name: role.name, gender: role.gender, style: role.style } : undefined;
@@ -124,6 +178,16 @@ export default function CharacterChatPage() {
       new DefaultChatTransport<UIMessage>({
         api: "/api/chat",
         body: chatBody,
+        headers: async (): Promise<Record<string, string>> => {
+          try {
+            const sb = supabaseBrowser();
+            const { data } = await sb.auth.getSession();
+            const t = data.session?.access_token;
+            return t ? { Authorization: `Bearer ${t}` } : {};
+          } catch {
+            return {};
+          }
+        },
       }),
     [chatBody]
   );
@@ -132,6 +196,9 @@ export default function CharacterChatPage() {
     id: roleId || "missing",
     transport,
     messages: messagesByRole[roleId] ?? [],
+    onFinish: () => {
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("roleplay-credit-refresh"));
+    },
   });
 
   useEffect(() => {
@@ -341,11 +408,20 @@ export default function CharacterChatPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white/20">
-            <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5">
+          <div className="flex min-w-0 items-center justify-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white/20">
+              <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+            </div>
+            <span className="truncate text-sm font-semibold">{role.name}</span>
           </div>
-          <span className="truncate text-sm font-semibold">{role.name}</span>
+          {roleplayCreditAuthed ? (
+            <span className="text-[10px] tabular-nums text-white/50" title="角色扮演独立额度，与德州筹码无关">
+              credit {roleplayCredit ?? "…"} · 每条 −10
+            </span>
+          ) : (
+            <span className="text-[10px] text-white/35">未登录不扣 credit</span>
+          )}
         </div>
         <button
           type="button"

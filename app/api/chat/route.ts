@@ -1,9 +1,12 @@
 import { convertToModelMessages, generateText, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { ModelMessage } from "@ai-sdk/provider-utils";
+import { NextResponse } from "next/server";
 
 import { getLlmConfig } from "@/lib/app-config";
+import { CHAT_CREDIT_COST } from "@/lib/chat-credit";
 import { debugLog } from "@/lib/debug-log";
+import { supabaseAdmin } from "@/lib/supabase/server";
 
 type Gender = "male" | "female" | "unknown";
 type RoleLite = { name: string; gender?: Gender; style?: string };
@@ -92,6 +95,18 @@ function forceSingleLineSpeaker(text: string, speakerName: string) {
   return `【${speakerName}】${safeContent}`;
 }
 
+type RpcCreditResult = { ok?: boolean; error?: string; credit_balance?: number };
+
+async function getBearerUserId(req: Request) {
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+  if (!token) return null;
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user.id;
+}
+
 export async function POST(req: Request) {
   debugLog("info", "chat", "start");
   const body = (await req.json()) as {
@@ -118,6 +133,39 @@ export async function POST(req: Request) {
   const typedUiMessages = uiMessages as UIMessage[];
   const maxMessages = 12;
   const recentUiMessages = typedUiMessages.slice(-maxMessages);
+
+  const userId = await getBearerUserId(req);
+  if (userId) {
+    const supabase = supabaseAdmin();
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("consume_chat_credit", {
+      p_user_id: userId,
+      p_cost: CHAT_CREDIT_COST,
+    });
+    if (rpcErr) {
+      debugLog("error", "chat", "consume_chat_credit rpc", { message: rpcErr.message });
+      return NextResponse.json(
+        { error: "Credit 扣减失败（请确认已在 Supabase 执行 chat-credit-schema.sql）", detail: rpcErr.message },
+        { status: 500 }
+      );
+    }
+    const payload = rpcData as RpcCreditResult | null;
+    if (!payload?.ok) {
+      if (payload?.error === "insufficient_credit") {
+        return NextResponse.json(
+          {
+            error: "Credit 不足",
+            creditBalance: typeof payload.credit_balance === "number" ? payload.credit_balance : 0,
+            cost: CHAT_CREDIT_COST,
+          },
+          { status: 402 }
+        );
+      }
+      if (payload?.error === "no_wallet") {
+        return NextResponse.json({ error: "未找到钱包，请刷新页面或重新登录" }, { status: 403 });
+      }
+      return NextResponse.json({ error: "Credit 扣减失败", code: payload?.error }, { status: 500 });
+    }
+  }
   const recentWithoutId: Array<Omit<UIMessage, "id">> = recentUiMessages.map((m) => {
     const { id: _id, ...rest } = m;
     void _id;
