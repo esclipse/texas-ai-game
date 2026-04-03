@@ -54,6 +54,9 @@ function stableFingerprintSeed() {
   return parts.join("|");
 }
 
+/** 房间单挑（PvP）入口；改为 `true` 可恢复顶部「房间单挑」按钮与弹窗 */
+const SHOW_PVP_ROOM = false;
+
 export default function Home() {
   const hasSupabaseEnv =
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) && Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
@@ -1410,18 +1413,20 @@ export default function Home() {
             </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 rounded-lg bg-[#1A1A1A] px-3 text-xs text-white shadow-sm hover:bg-black/90"
-              disabled={pvpCreating || pvpJoining}
-              onClick={() => {
-                setPvpModalError("");
-                setShowPvpJoinPanel(true);
-              }}
-            >
-              房间单挑
-            </Button>
+            {SHOW_PVP_ROOM ? (
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-lg bg-[#1A1A1A] px-3 text-xs text-white shadow-sm hover:bg-black/90"
+                disabled={pvpCreating || pvpJoining}
+                onClick={() => {
+                  setPvpModalError("");
+                  setShowPvpJoinPanel(true);
+                }}
+              >
+                房间单挑
+              </Button>
+            ) : null}
             {authUserId ? (
               <Button
                 type="button"
@@ -2140,7 +2145,7 @@ export default function Home() {
         </div>
       )}
 
-      {showPvpJoinPanel && (
+      {SHOW_PVP_ROOM && showPvpJoinPanel && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/25 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-[#e9e5dc] bg-white p-4 shadow-xl">
             <div className="mb-3 text-sm font-semibold text-[#1A1A1A]">房间单挑</div>
