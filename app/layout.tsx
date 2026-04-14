@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "鱼桌",
-  description: "移动端 AI 德州对战 H5",
+  title: {
+    default: "鱼桌 · AI游戏平台",
+    template: "%s | 鱼桌",
+  },
+  description: "AI 驱动的游戏平台：AI 德州扑克对战、AI Agent 工具调用、角色扮演",
 };
 
 export default function RootLayout({
