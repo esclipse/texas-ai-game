@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.synthracloud.com"),
   title: {
     default: "鱼桌 · AI游戏平台",
     template: "%s | 鱼桌",
