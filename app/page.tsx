@@ -75,9 +75,57 @@ const faqs = [
   },
 ];
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://yuzuo.ai/#website",
+      name: "鱼桌",
+      url: "https://yuzuo.ai/",
+      description: "AI 驱动的游戏平台：AI 德州扑克对战、AI Agent 工具调用、角色扮演",
+      inLanguage: "zh-CN",
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://yuzuo.ai/game#app",
+      name: "AI 德州扑克",
+      url: "https://yuzuo.ai/game",
+      applicationCategory: "GameApplication",
+      operatingSystem: "Web",
+      description: "与拥有不同性格和策略的 AI 玩家同桌对战的德州扑克游戏，支持多种难度。",
+      inLanguage: "zh-CN",
+      isPartOf: { "@id": "https://yuzuo.ai/#website" },
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://yuzuo.ai/agent#app",
+      name: "AI Agent 对话",
+      url: "https://yuzuo.ai/agent",
+      applicationCategory: "UtilitiesApplication",
+      operatingSystem: "Web",
+      description: "AI Agent 智能对话，支持网页搜索、图片生成、视频生成和代码执行。",
+      inLanguage: "zh-CN",
+      isPartOf: { "@id": "https://yuzuo.ai/#website" },
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: faqs.map((item) => ({
+        "@type": "Question",
+        name: item.q,
+        acceptedAnswer: { "@type": "Answer", text: item.a },
+      })),
+    },
+  ],
+};
+
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* Nav */}
       <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between max-w-6xl mx-auto">
         <span className="font-bold text-lg tracking-tight">🐟 鱼桌</span>
